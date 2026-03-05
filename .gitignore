@@ -1,0 +1,36 @@
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging/build artifacts
+build/
+dist/
+site/
+*.egg-info/
+.eggs/
+
+# Test/cache artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Tooling
+.mypy_cache/
+.ruff_cache/
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Local runtime config
+smallex.toml
+
+# test sqlite database
+*.db
