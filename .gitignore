@@ -30,7 +30,7 @@ htmlcov/
 .vscode/
 
 # Local runtime config
-smallex.toml
+smallex*.toml
 
 # test sqlite database
 *.db

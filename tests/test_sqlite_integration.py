@@ -37,7 +37,16 @@ def test_run_command_with_sql_folder_fixture(
         conn.execute("INSERT INTO users (email) VALUES (NULL)")
         conn.commit()
 
-    sql_dir = Path(__file__).parent / "sql"
+    sql_dir = tmp_path / "sql"
+    sql_dir.mkdir()
+    (sql_dir / "01_no_empty_emails.sql").write_text(
+        "SELECT id, email FROM users WHERE email = '';",
+        encoding="utf-8",
+    )
+    (sql_dir / "02_no_null_emails.sql").write_text(
+        "SELECT id, email FROM users WHERE email IS NULL;",
+        encoding="utf-8",
+    )
     exit_code = main(
         ["run", "--config", str(config_path), "--tests-dir", str(sql_dir)]
     )

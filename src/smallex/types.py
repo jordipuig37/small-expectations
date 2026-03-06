@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, Sequence
 
 
 class CursorProtocol(Protocol):
@@ -11,8 +11,12 @@ class CursorProtocol(Protocol):
     def execute(self, query: str) -> object:
         """Execute a SQL statement."""
 
-    def fetchone(self) -> object | None:
+    def fetchone(self) -> Sequence[object] | None:
         """Fetch one row from the previous statement result."""
+
+    @property
+    def description(self) -> Sequence[Sequence[object]] | None:
+        """Optional DB-API column metadata for the active result set."""
 
 
 class ConnectionProtocol(Protocol):
@@ -23,4 +27,3 @@ class ConnectionProtocol(Protocol):
 
     def close(self) -> None:
         """Close the underlying connection resources."""
-

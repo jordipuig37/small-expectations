@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import csv
 import sys
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from smallex.backends import get_backend
 from smallex.backends.base import DatabaseConfig
-from smallex.types import ConnectionProtocol
+from smallex.sqltests import SQLTestCase, parse_sql_files
+from smallex.types import ConnectionProtocol, CursorProtocol
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -18,36 +20,85 @@ else:  # pragma: no cover
     import tomli as tomllib
 
 
-@dataclass
-class TestResult:
-    """Outcome for one SQL expectation file.
+class FailureRowsMode:
+    """Supported modes for failure row reporting."""
+
+    NONE = "none"
+    TERMINAL = "terminal"
+    CSV = "csv"
+    BOTH = "both"
+
+
+@dataclass(frozen=True)
+class FailureRowsConfig:
+    """Configuration controlling how failing rows are collected and reported.
 
     Attributes:
-        path: File path for the SQL script that was executed.
-        passed: ``True`` when the query returned zero rows.
-        row_count: Number of rows used to determine pass/fail.
-            The current runner only needs to know if at least one row exists,
-            so this value is either ``0`` or ``1``.
+        mode: One of ``none``, ``terminal``, ``csv``, or ``both``.
+        terminal_limit: Number of rows to display per failing test in terminal.
+        csv_limit: Maximum number of rows to persist per failing test in CSV.
+        csv_dir: Target directory for CSV outputs.
     """
 
-    path: Path
+    mode: str = FailureRowsMode.NONE
+    terminal_limit: int = 5
+    csv_limit: int = 10_000
+    csv_dir: Path = Path(".smallex/failures")
+
+    def terminal_enabled(self) -> bool:
+        """Return whether terminal row previews should be produced."""
+
+        return self.mode in {FailureRowsMode.TERMINAL, FailureRowsMode.BOTH}
+
+    def csv_enabled(self) -> bool:
+        """Return whether CSV failure exports should be produced."""
+
+        return self.mode in {FailureRowsMode.CSV, FailureRowsMode.BOTH}
+
+
+@dataclass
+class TestResult:
+    """Outcome for one SQL expectation.
+
+    Attributes:
+        case: Source SQL test case metadata.
+        passed: ``True`` when query returns zero rows.
+        row_count: Number of rows fetched for this failure context.
+        has_more_rows: ``True`` when rows exist beyond configured fetch limits.
+        columns: Result column names for failing query rows.
+        sample_rows: Sample rows for terminal reporting.
+        csv_path: Generated CSV path when export is enabled.
+    """
+
+    case: SQLTestCase
     passed: bool
     row_count: int
+    has_more_rows: bool
+    columns: list[str]
+    sample_rows: list[tuple[object, ...]]
+    csv_path: Path | None
+
+    @property
+    def message(self) -> str | None:
+        """Return user-authored message associated with this test case."""
+
+        return self.case.message
+
+    @property
+    def path(self) -> Path:
+        """Return source path for compatibility with existing callers."""
+
+        return self.case.path
+
+    @property
+    def node_id(self) -> str:
+        """Return pytest-like node id for terminal reporting."""
+
+        return self.case.node_id
 
 
 def _as_mapping(value: object, *, field_name: str) -> Mapping[str, object]:
-    """Validate and cast a TOML table-like object into a mapping.
-
-    Args:
-        value: TOML node to validate.
-        field_name: Human-readable field name used for error messages.
-
-    Returns:
-        Mapping[str, object]: Mapping view of the table.
-
-    Raises:
-        ValueError: If ``value`` is not a mapping.
-    """
+    """Validate and cast a TOML table-like object into a mapping."""
 
     if not isinstance(value, dict):
         raise ValueError(f"Config {field_name} must be a table.")
@@ -55,30 +106,7 @@ def _as_mapping(value: object, *, field_name: str) -> Mapping[str, object]:
 
 
 def _parse_database_config(raw_database_cfg: Mapping[str, object]) -> DatabaseConfig:
-    """Convert a raw TOML database section into a typed config object.
-
-    Config format:
-        [database]
-        engine = "sqlite"  # sqlite | snowflake | databricks
-
-        [database.connection]
-        database = "example.db"
-
-    Legacy compatibility:
-        If ``[database.connection]`` is missing, keys from ``[database]`` other
-        than ``engine`` and ``module`` are treated as connection options.
-        If ``engine`` is missing and ``module == "sqlite3"``, engine defaults
-        to ``sqlite``.
-
-    Args:
-        raw_database_cfg: Parsed ``[database]`` TOML section.
-
-    Returns:
-        DatabaseConfig: Normalized database configuration.
-
-    Raises:
-        ValueError: If required config pieces are missing or invalid.
-    """
+    """Convert a raw TOML database section into a typed config object."""
 
     engine_raw = raw_database_cfg.get("engine")
     module_raw = raw_database_cfg.get("module")
@@ -107,18 +135,7 @@ def _parse_database_config(raw_database_cfg: Mapping[str, object]) -> DatabaseCo
 
 
 def load_config(config_path: Path) -> DatabaseConfig:
-    """Load and validate CLI config from TOML file.
-
-    Args:
-        config_path: Path to the TOML config file.
-
-    Returns:
-        DatabaseConfig: Parsed and normalized database settings.
-
-    Raises:
-        FileNotFoundError: If ``config_path`` does not exist.
-        ValueError: If the TOML contents are missing required sections/fields.
-    """
+    """Load and validate CLI config from TOML file."""
 
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -134,65 +151,184 @@ def load_config(config_path: Path) -> DatabaseConfig:
 
 
 def discover_sql_tests(tests_dir: Path) -> list[Path]:
-    """Discover SQL test scripts recursively under a directory.
-
-    Args:
-        tests_dir: Root directory containing ``.sql`` files.
-
-    Returns:
-        list[Path]: Sorted list of discovered SQL script paths.
-    """
+    """Discover SQL test scripts recursively under a directory."""
 
     if not tests_dir.exists():
         return []
     return sorted(path for path in tests_dir.rglob("*.sql") if path.is_file())
 
 
-def run_sql_file(connection: ConnectionProtocol, sql_file: Path) -> TestResult:
-    """Execute one SQL file and classify pass/fail.
+def discover_sql_cases(tests_dir: Path) -> list[SQLTestCase]:
+    """Discover SQL files and parse all SQL test cases."""
 
-    A script is considered passing if it returns no rows. If at least one row
-    is returned, it is considered failed.
+    files = discover_sql_tests(tests_dir)
+    return parse_sql_files(files)
 
-    Args:
-        connection: Open DB-API-like connection object.
-        sql_file: SQL file path to execute.
+
+def _normalize_row(row: Sequence[object]) -> tuple[object, ...]:
+    """Normalize DB-API row representation into a tuple."""
+
+    return tuple(row)
+
+
+def _get_column_names(cursor: CursorProtocol, row_width: int) -> list[str]:
+    """Extract result-set column names from cursor metadata."""
+
+    description = cursor.description
+    if description is None:
+        return [f"column_{index}" for index in range(1, row_width + 1)]
+
+    names: list[str] = []
+    for index, col in enumerate(description, start=1):
+        if not col:
+            names.append(f"column_{index}")
+            continue
+        name = col[0]
+        names.append(str(name) if name else f"column_{index}")
+    return names
+
+
+def _safe_test_name(name: str) -> str:
+    """Sanitize test names for filesystem usage in CSV exports."""
+
+    lowered = name.lower()
+    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in lowered)
+    collapsed = "_".join(part for part in cleaned.split("_") if part)
+    return collapsed or "test"
+
+
+def _csv_path_for_case(case: SQLTestCase, csv_dir: Path) -> Path:
+    """Build deterministic CSV output path for a failing test case."""
+
+    stem = case.path.stem
+    safe_name = _safe_test_name(case.name)
+    return csv_dir / f"{stem}__{safe_name}.csv"
+
+
+def _write_rows_csv(path: Path, columns: Sequence[str], rows: Sequence[Sequence[object]]) -> None:
+    """Write rows and columns to a CSV file."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(columns)
+        for row in rows:
+            writer.writerow(row)
+
+
+def _row_fetch_limit(config: FailureRowsConfig) -> int:
+    """Compute maximum number of rows to fetch for failure reporting."""
+
+    if config.mode == FailureRowsMode.NONE:
+        return 1
+
+    limits: list[int] = [1]
+    if config.terminal_enabled():
+        limits.append(config.terminal_limit)
+    if config.csv_enabled():
+        limits.append(config.csv_limit)
+    return max(limits)
+
+
+def _collect_failure_rows(
+    cursor: CursorProtocol,
+    first_row: Sequence[object],
+    *,
+    limit: int,
+) -> tuple[list[tuple[object, ...]], bool]:
+    """Collect rows for failed query diagnostics up to the given limit.
 
     Returns:
-        TestResult: Pass/fail status for the file.
+        tuple[list[tuple[object, ...]], bool]: Collected rows and a flag
+        indicating whether more rows exist beyond ``limit``.
     """
 
-    query = sql_file.read_text(encoding="utf-8")
+    rows: list[tuple[object, ...]] = [_normalize_row(first_row)]
+    while len(rows) < limit:
+        next_row = cursor.fetchone()
+        if next_row is None:
+            return rows, False
+        rows.append(_normalize_row(next_row))
+
+    extra_row = cursor.fetchone()
+    return rows, extra_row is not None
+
+
+def run_sql_case(
+    connection: ConnectionProtocol,
+    case: SQLTestCase,
+    *,
+    failure_rows: FailureRowsConfig,
+) -> TestResult:
+    """Execute one SQL test case and classify pass/fail with diagnostics."""
+
     cursor = connection.cursor()
-    cursor.execute(query)
+    cursor.execute(case.query)
     first_row = cursor.fetchone()
-    row_count = 0 if first_row is None else 1
-    return TestResult(path=sql_file, passed=row_count == 0, row_count=row_count)
+    if first_row is None:
+        return TestResult(
+            case=case,
+            passed=True,
+            row_count=0,
+            has_more_rows=False,
+            columns=[],
+            sample_rows=[],
+            csv_path=None,
+        )
+
+    fetch_limit = _row_fetch_limit(failure_rows)
+    collected_rows, has_more_rows = _collect_failure_rows(
+        cursor,
+        first_row,
+        limit=fetch_limit,
+    )
+
+    columns = _get_column_names(cursor, len(collected_rows[0]))
+    sample_rows = (
+        collected_rows[: failure_rows.terminal_limit]
+        if failure_rows.terminal_enabled()
+        else []
+    )
+
+    csv_path: Path | None = None
+    if failure_rows.csv_enabled():
+        csv_rows = collected_rows[: failure_rows.csv_limit]
+        csv_path = _csv_path_for_case(case, failure_rows.csv_dir)
+        _write_rows_csv(csv_path, columns, csv_rows)
+
+    return TestResult(
+        case=case,
+        passed=False,
+        row_count=len(collected_rows),
+        has_more_rows=has_more_rows,
+        columns=columns,
+        sample_rows=sample_rows,
+        csv_path=csv_path,
+    )
 
 
-def run_all(config_path: Path, tests_dir: Path) -> tuple[list[TestResult], int]:
-    """Run all SQL expectations and return results plus failed count.
-
-    Args:
-        config_path: Path to CLI config file.
-        tests_dir: Directory containing SQL scripts.
-
-    Returns:
-        tuple[list[TestResult], int]: A tuple with all results and the number
-        of failed tests.
-    """
+def run_all(
+    config_path: Path,
+    tests_dir: Path,
+    *,
+    failure_rows: FailureRowsConfig | None = None,
+) -> tuple[list[TestResult], int]:
+    """Run all SQL expectations and return results plus failed count."""
 
     db_config = load_config(config_path)
-    sql_files = discover_sql_tests(tests_dir)
-    if not sql_files:
+    cases = discover_sql_cases(tests_dir)
+    if not cases:
         return [], 0
 
+    reporting_cfg = failure_rows if failure_rows is not None else FailureRowsConfig()
     backend = get_backend(db_config.engine)
     results: list[TestResult] = []
 
     with closing(backend.connect(db_config.connection)) as connection:
-        for sql_file in sql_files:
-            results.append(run_sql_file(connection, sql_file))
+        for case in cases:
+            results.append(
+                run_sql_case(connection, case, failure_rows=reporting_cfg)
+            )
 
     failed = sum(1 for result in results if not result.passed)
     return results, failed

@@ -9,9 +9,16 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import Sequence
 
 from smallex import __version__
-from smallex.runner import TestResult, load_config, run_all
+from smallex.runner import (
+    FailureRowsConfig,
+    FailureRowsMode,
+    TestResult,
+    load_config,
+    run_all,
+)
 
 MIN_SEPARATOR_WIDTH = 40
 RESET = "\033[0m"
@@ -32,14 +39,7 @@ class ColorMode:
 
 
 def _use_color(mode: str) -> bool:
-    """Decide whether ANSI colors should be enabled.
-
-    Args:
-        mode: Color mode from CLI options.
-
-    Returns:
-        bool: ``True`` when color output should be used.
-    """
+    """Decide whether ANSI colors should be enabled."""
 
     if mode == ColorMode.YES:
         return True
@@ -85,18 +85,7 @@ def _section(
     title_bold: bool = False,
     line_color: str | None = None,
 ) -> str:
-    """Build a pytest-like section separator line.
-
-    Args:
-        title: Section title text.
-        color_enabled: Whether ANSI coloring is enabled.
-        title_color: Optional ANSI color for the title text.
-        title_bold: Whether title text should be bold.
-        line_color: Optional ANSI color for the separator lines.
-
-    Returns:
-        str: Formatted section separator.
-    """
+    """Build a pytest-like section separator line."""
 
     width = _terminal_width()
     plain_padded = f" {title} "
@@ -119,15 +108,17 @@ def _section(
     return f"{left}{styled_padded}{right}"
 
 
+def _safe_connection_details(connection: dict[str, object]) -> str:
+    """Render safe connection detail keys without sensitive values."""
+
+    keys = sorted(connection)
+    # [ ] render only the account, database, schema, user and role, and instead
+    # of returning the keys, return the values
+    return ", ".join(keys) if keys else "no connection options"
+
+
 def _display_path(path: Path) -> str:
-    """Render a path in a terminal-friendly form.
-
-    Args:
-        path: Path to display.
-
-    Returns:
-        str: Path relative to current working directory when possible.
-    """
+    """Render a path in a terminal-friendly form."""
 
     try:
         return str(path.resolve().relative_to(Path.cwd()))
@@ -135,19 +126,18 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
-def _safe_connection_details(connection: dict[str, object]) -> str:
-    """Render safe connection detail keys without sensitive values."""
+def _format_row(columns: Sequence[str], row: Sequence[object]) -> str:
+    """Render one result row as compact key=value entries."""
 
-    keys = sorted(connection)
-    return ", ".join(keys) if keys else "no connection options"
+    pairs: list[str] = []
+    for index, value in enumerate(row):
+        key = columns[index] if index < len(columns) else f"column_{index + 1}"
+        pairs.append(f"{key}={value!r}")
+    return ", ".join(pairs)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the top-level command parser.
-
-    Returns:
-        argparse.ArgumentParser: Configured parser for the ``smallex`` CLI.
-    """
+    """Build the top-level command parser."""
 
     parser = argparse.ArgumentParser(prog="smallex")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -168,6 +158,34 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[ColorMode.AUTO, ColorMode.YES, ColorMode.NO],
         default=ColorMode.AUTO,
         help="Color output mode: auto, yes, or no (default: auto).",
+    )
+    run_parser.add_argument(
+        "--failure-rows-mode",
+        choices=[
+            FailureRowsMode.NONE,
+            FailureRowsMode.TERMINAL,
+            FailureRowsMode.CSV,
+            FailureRowsMode.BOTH,
+        ],
+        default=FailureRowsMode.NONE,
+        help="Failure row output mode: none, terminal, csv, or both.",
+    )
+    run_parser.add_argument(
+        "--failure-rows-limit",
+        type=int,
+        default=5,
+        help="Rows to show in terminal per failing test (default: 5).",
+    )
+    run_parser.add_argument(
+        "--failure-rows-csv-limit",
+        type=int,
+        default=10_000,
+        help="Rows to write to CSV per failing test (default: 10000).",
+    )
+    run_parser.add_argument(
+        "--failure-rows-dir",
+        default=".smallex/failures",
+        help="Directory for failure CSV outputs (default: .smallex/failures).",
     )
     return parser
 
@@ -194,18 +212,27 @@ def _print_header(
 
 
 def _print_test_progress(results: list[TestResult], *, color_enabled: bool) -> None:
-    """Print one progress line per SQL test result."""
+    """Print pytest-like progress grouped by SQL file."""
 
+    grouped: dict[str, list[TestResult]] = {}
     for result in results:
-        status = "." if result.passed else "F"
-        status_color = GREEN if result.passed else RED
-        print(
-            f"{_display_path(result.path)} "
-            f"{_paint(status, status_color, enabled=color_enabled)}"
+        key = _display_path(result.path)
+        grouped.setdefault(key, []).append(result)
+
+    for path, file_results in grouped.items():
+        colored_symbols = "".join(
+            _paint("." if result.passed else "F", GREEN if result.passed else RED, enabled=color_enabled)
+            for result in file_results
         )
+        print(f"{path} {colored_symbols}")
 
 
-def _print_failures(results: list[TestResult], *, color_enabled: bool) -> None:
+def _print_failures(
+    results: list[TestResult],
+    *,
+    color_enabled: bool,
+    failure_rows_cfg: FailureRowsConfig,
+) -> None:
     """Print pytest-like failure details for failed SQL checks."""
 
     failed = [result for result in results if not result.passed]
@@ -223,14 +250,37 @@ def _print_failures(results: list[TestResult], *, color_enabled: bool) -> None:
     )
     for result in failed:
         print("_" * _terminal_width())
-        print(_paint(_display_path(result.path), RED, enabled=color_enabled))
-        print(
-            _paint(
-                "Query returned at least one row. Expected: zero rows.",
-                RED,
-                enabled=color_enabled,
+        print(_paint(result.node_id, RED, enabled=color_enabled))
+        if result.message:
+            print(_paint(f"Message: {result.message}", RED, enabled=color_enabled))
+        else:
+            print(
+                _paint(
+                    "Message: Query returned at least one row. Expected: zero rows.",
+                    RED,
+                    enabled=color_enabled,
+                )
             )
-        )
+        if failure_rows_cfg.terminal_enabled() and result.sample_rows:
+            print(
+                _paint(
+                    f"Sample failing rows (showing up to {failure_rows_cfg.terminal_limit}):",
+                    RED,
+                    enabled=color_enabled,
+                )
+            )
+            for row in result.sample_rows:
+                print(_paint(f"  - {_format_row(result.columns, row)}", RED, enabled=color_enabled))
+            if result.has_more_rows:
+                print(
+                    _paint(
+                        f"  ... more rows exist (showing first {len(result.sample_rows)})",
+                        RED,
+                        enabled=color_enabled,
+                    )
+                )
+        if result.csv_path is not None:
+            print(_paint(f"Failure rows CSV: {result.csv_path}", RED, enabled=color_enabled))
 
 
 def _print_footer(
@@ -253,7 +303,8 @@ def _print_footer(
         )
         for result in failed:
             label = _paint("FAILED", RED, enabled=color_enabled)
-            print(f"{label} {_display_path(result.path)} - Query returned one or more rows")
+            detail = result.message if result.message else "Query returned one or more rows"
+            print(f"{label} {result.node_id} - {detail}")
 
     status_parts: list[str] = []
     if failed:
@@ -275,20 +326,23 @@ def _print_footer(
     )
 
 
-def _handle_run(config: str, tests_dir: str, color: str) -> int:
-    """Execute ``smallex run`` and map outcomes to an exit code.
+def _build_failure_rows_config(args: argparse.Namespace) -> FailureRowsConfig:
+    """Build validated failure-row reporting configuration from CLI args."""
 
-    Args:
-        config: Path to TOML config file.
-        tests_dir: Directory containing SQL test files.
-        color: Color output mode.
+    if args.failure_rows_limit < 1:
+        raise ValueError("--failure-rows-limit must be >= 1")
+    if args.failure_rows_csv_limit < 1:
+        raise ValueError("--failure-rows-csv-limit must be >= 1")
+    return FailureRowsConfig(
+        mode=args.failure_rows_mode,
+        terminal_limit=args.failure_rows_limit,
+        csv_limit=args.failure_rows_csv_limit,
+        csv_dir=Path(args.failure_rows_dir),
+    )
 
-    Returns:
-        int: Process-style exit code.
-            - ``0``: success with no failures
-            - ``1``: one or more failing SQL checks
-            - ``2``: configuration/runtime error
-    """
+
+def _handle_run(config: str, tests_dir: str, color: str, args: argparse.Namespace) -> int:
+    """Execute ``smallex run`` and map outcomes to an exit code."""
 
     started = time.perf_counter()
     color_enabled = _use_color(color)
@@ -297,7 +351,12 @@ def _handle_run(config: str, tests_dir: str, color: str) -> int:
 
     try:
         db_config = load_config(config_path)
-        results, failed = run_all(config_path, tests_path)
+        failure_rows_cfg = _build_failure_rows_config(args)
+        results, failed = run_all(
+            config_path,
+            tests_path,
+            failure_rows=failure_rows_cfg,
+        )
     except Exception as exc:  # pragma: no cover - surfaced as CLI error behavior
         print(f"Error: {exc}", file=sys.stderr)
         return 2
@@ -311,26 +370,19 @@ def _handle_run(config: str, tests_dir: str, color: str) -> int:
     if results:
         _print_test_progress(results, color_enabled=color_enabled)
     duration = time.perf_counter() - started
-    _print_failures(results, color_enabled=color_enabled)
+    _print_failures(results, color_enabled=color_enabled, failure_rows_cfg=failure_rows_cfg)
     _print_footer(results, duration, color_enabled=color_enabled)
     return 1 if failed else 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entrypoint used by both console script and tests.
-
-    Args:
-        argv: Optional argument vector, excluding executable name.
-
-    Returns:
-        int: Process-style exit code.
-    """
+    """CLI entrypoint used by both console script and tests."""
 
     parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command == "run":
-        return _handle_run(args.config, args.tests_dir, args.color)
+        return _handle_run(args.config, args.tests_dir, args.color, args)
 
     parser.error(f"Unknown command: {args.command}")
     return 2

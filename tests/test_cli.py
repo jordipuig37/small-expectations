@@ -130,3 +130,100 @@ def test_run_command_supports_forced_color_output(
 
     assert exit_code == 0
     assert "\x1b[" in out
+
+
+def test_run_command_supports_message_and_multi_query_blocks(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "test.db"
+    config_path = tmp_path / "smallex.toml"
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    _write_config(config_path, db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+        conn.execute("INSERT INTO users (email) VALUES (NULL)")
+        conn.execute("INSERT INTO users (email) VALUES ('ok@example.com')")
+        conn.commit()
+
+    (tests_dir / "users.sql").write_text(
+        "\n".join(
+            [
+                "-- smallex:test: no_null_emails",
+                "-- smallex:message: users.email should never be null",
+                "SELECT id, email FROM users WHERE email IS NULL;",
+                "",
+                "-- smallex:test: no_blank_emails",
+                "-- smallex:message: users.email should never be blank",
+                "SELECT id, email FROM users WHERE email = '';",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--tests-dir",
+            str(tests_dir),
+            "--failure-rows-mode",
+            "terminal",
+            "--failure-rows-limit",
+            "5",
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "collected 2 items" in out
+    assert "users.sql F." in out
+    assert "users.email should never be null" in out
+    assert "Sample failing rows" in out
+
+
+def test_run_command_supports_failure_csv_export(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "test.db"
+    config_path = tmp_path / "smallex.toml"
+    tests_dir = tmp_path / "tests"
+    output_dir = tmp_path / "failures"
+    tests_dir.mkdir()
+    _write_config(config_path, db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+        conn.execute("INSERT INTO users (email) VALUES (NULL)")
+        conn.commit()
+
+    (tests_dir / "users.sql").write_text(
+        "SELECT id, email FROM users WHERE email IS NULL;",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--tests-dir",
+            str(tests_dir),
+            "--failure-rows-mode",
+            "csv",
+            "--failure-rows-dir",
+            str(output_dir),
+            "--failure-rows-csv-limit",
+            "10000",
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Failure rows CSV:" in out
+    csv_files = list(output_dir.glob("*.csv"))
+    assert len(csv_files) == 1
+    content = csv_files[0].read_text(encoding="utf-8")
+    assert "id,email" in content

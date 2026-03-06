@@ -28,9 +28,27 @@ def test_get_backend_raises_for_unknown_engine() -> None:
 def test_snowflake_backend_connects_without_real_driver(monkeypatch: pytest.MonkeyPatch) -> None:
     called: dict[str, object] = {}
 
-    def fake_connect(**kwargs: object) -> object:
+    class FakeCursorForConnect(CursorProtocol):
+        @property
+        def description(self) -> tuple[tuple[object, ...], ...] | None:
+            return None
+
+        def execute(self, query: str) -> None:
+            self.query = query
+
+        def fetchone(self) -> tuple[object, ...] | None:
+            return None
+
+    class FakeConnectionForConnect(ConnectionProtocol):
+        def cursor(self) -> CursorProtocol:
+            return FakeCursorForConnect()
+
+        def close(self) -> None:
+            return None
+
+    def fake_connect(**kwargs: object) -> ConnectionProtocol:
         called.update(kwargs)
-        return object()
+        return FakeConnectionForConnect()
 
     def fake_import_module(module_path: str) -> object:
         assert module_path == "snowflake.connector"
@@ -93,8 +111,12 @@ def test_run_all_for_snowflake_uses_backend_with_mocked_driver(
         def execute(self, query: str) -> None:
             self.query = query
 
-        def fetchone(self) -> object | None:
+        def fetchone(self) -> tuple[object, ...] | None:
             return None
+
+        @property
+        def description(self) -> tuple[tuple[object, ...], ...] | None:
+            return (("col1",),)
 
     class FakeConnection(ConnectionProtocol):
         def __init__(self) -> None:
