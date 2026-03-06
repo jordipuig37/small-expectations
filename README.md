@@ -88,6 +88,12 @@ Run:
 smallex run
 ```
 
+Show command help:
+
+```bash
+smallex run --help
+```
+
 A test passes when the query returns zero rows and fails if it returns one or more rows.
 The terminal report follows a pytest-like style (session header, per-test `.`/`F`,
 failure details, and short summary info).
@@ -120,6 +126,9 @@ smallex run \
 
 Options:
 
+- `--config`: path to TOML config file (default: `smallex.toml`)
+- `--tests-dir`: root folder containing `.sql` test files (default: `tests`)
+- `--color`: `auto | yes | no` (default: `auto`)
 - `--failure-rows-mode`: `none | terminal | csv | both` (default: `none`)
 - `--failure-rows-limit`: top rows shown in terminal per failing test (default: `5`)
 - `--failure-rows-csv-limit`: max rows written to CSV per failing test (default: `10000`)
