@@ -44,8 +44,11 @@ def test_run_command_with_sql_folder_fixture(
     out = capsys.readouterr().out
 
     assert exit_code == 1
-    assert "[PASS]" in out
-    assert "01_no_empty_emails.sql" in out
-    assert "[FAIL]" in out
-    assert "02_no_null_emails.sql" in out
-    assert "Summary: 1 passed, 1 failed, 2 total" in out
+    assert "test session starts" in out
+    assert "collected 2 items" in out
+    assert "01_no_empty_emails.sql ." in out
+    assert "02_no_null_emails.sql F" in out
+    assert "FAILURES" in out
+    assert "short test summary info" in out
+    assert "FAILED " in out
+    assert "1 failed, 1 passed in " in out

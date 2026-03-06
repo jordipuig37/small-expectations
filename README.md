@@ -66,6 +66,8 @@ smallex run
 ```
 
 A test passes when the query returns zero rows and fails if it returns one or more rows.
+The terminal report follows a pytest-like style (session header, per-test `.`/`F`,
+failure details, and short summary info).
 
 ## Testing
 
