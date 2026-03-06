@@ -34,3 +34,5 @@ smallex.toml
 
 # test sqlite database
 *.db
+
+.pypirc
