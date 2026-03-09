@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
 from pytest import CaptureFixture
 
 from smallex.cli import main
@@ -114,6 +115,17 @@ def test_run_command_returns_error_for_missing_config(capsys: CaptureFixture[str
 
     assert exit_code == 2
     assert "Error:" in err
+
+
+def test_run_command_help_displays_options(capsys: CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(["run", "--help"])
+
+    out = capsys.readouterr().out
+    assert raised.value.code == 0
+    assert "Run SQL expectation tests from .sql files." in out
+    assert "--config CONFIG" in out
+    assert "--tests-dir TESTS_DIR" in out
 
 
 def test_run_command_supports_forced_color_output(

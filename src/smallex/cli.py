@@ -9,7 +9,6 @@ import shutil
 import sys
 import time
 from pathlib import Path
-from typing import Sequence
 
 from smallex import __version__
 from smallex.runner import (
@@ -111,10 +110,12 @@ def _section(
 def _safe_connection_details(connection: dict[str, object]) -> str:
     """Render safe connection detail keys without sensitive values."""
 
-    keys = sorted(connection)
-    # [ ] render only the account, database, schema, user and role, and instead
-    # of returning the keys, return the values
-    return ", ".join(keys) if keys else "no connection options"
+    safe_values = [
+        f"{key}: {str(connection[key])}"
+        for key in ("account", "database", "schema", "user", "role")
+        if key in connection and connection[key] is not None
+    ]
+    return ", ".join(safe_values) if safe_values else "no connection options"
 
 
 def _display_path(path: Path) -> str:
@@ -126,23 +127,20 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
-def _format_row(columns: Sequence[str], row: Sequence[object]) -> str:
-    """Render one result row as compact key=value entries."""
-
-    pairs: list[str] = []
-    for index, value in enumerate(row):
-        key = columns[index] if index < len(columns) else f"column_{index + 1}"
-        pairs.append(f"{key}={value!r}")
-    return ", ".join(pairs)
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level command parser."""
 
     parser = argparse.ArgumentParser(prog="smallex")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser("run", help="Run SQL tests.")
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Run SQL tests.",
+        description=(
+            "Run SQL expectation tests from .sql files. "
+            "A test passes when the query returns zero rows."
+        ),
+    )
     run_parser.add_argument(
         "--config",
         default="smallex.toml",
@@ -269,25 +267,40 @@ def _print_failures(
                 )
             )
         if failure_rows_cfg.terminal_enabled() and result.sample_rows:
-            print(
-                _paint(
-                    f"Sample failing rows (showing up to {failure_rows_cfg.terminal_limit}):",
-                    RED,
-                    enabled=color_enabled,
-                )
-            )
-            for row in result.sample_rows:
-                print(_paint(f"  - {_format_row(result.columns, row)}", RED, enabled=color_enabled))
-            if result.has_more_rows:
-                print(
-                    _paint(
-                        f"  ... more rows exist (showing first {len(result.sample_rows)})",
-                        RED,
-                        enabled=color_enabled,
-                    )
-                )
+            _print_failure_rows(result, color_enabled=color_enabled)
         if result.csv_path is not None:
             print(_paint(f"Failure rows CSV: {result.csv_path}", RED, enabled=color_enabled))
+
+
+# TODO: Make the result aligned, by considering how long will be the longest
+# row, so that the result is more visually appealing and readable
+def _print_failure_rows(result: TestResult, *, color_enabled: bool) -> None:
+    """Print failing sample rows with a single header and raw row values."""
+
+    print(_paint("Sample failing rows:", RED, enabled=color_enabled))
+    header_columns = list(result.columns)
+    first_row_len = len(result.sample_rows[0])
+    if len(header_columns) < first_row_len:
+        header_columns.extend(
+            f"column_{index + 1}" for index in range(len(header_columns), first_row_len)
+        )
+    print(_paint(f"  {' | '.join(header_columns)}", RED, enabled=color_enabled))
+    for row in result.sample_rows:
+        print(
+            _paint(
+                f"  {' | '.join(repr(value) for value in row)}",
+                RED,
+                enabled=color_enabled,
+            )
+        )
+    if result.has_more_rows:
+        print(
+            _paint(
+                f"  ... more rows exist (showing first {len(result.sample_rows)})",
+                RED,
+                enabled=color_enabled,
+            )
+        )
 
 
 def _print_footer(
