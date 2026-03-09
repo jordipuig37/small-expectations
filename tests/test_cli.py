@@ -23,6 +23,25 @@ def _write_config(path: Path, db_path: Path) -> None:
     )
 
 
+def _write_env_config(path: Path, dev_db_path: Path, prod_db_path: Path) -> None:
+    path.write_text(
+        "\n".join(
+            [
+                "[database]",
+                'engine = "sqlite"',
+                'default_connection = "dev"',
+                "",
+                "[database.connections.dev]",
+                f'database = "{dev_db_path}"',
+                "",
+                "[database.connections.prod]",
+                f'database = "{prod_db_path}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_run_command_passes_when_query_returns_no_rows(
     tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:
@@ -227,3 +246,50 @@ def test_run_command_supports_failure_csv_export(
     assert len(csv_files) == 1
     content = csv_files[0].read_text(encoding="utf-8")
     assert "id,email" in content
+
+
+def test_run_command_supports_named_connection_environment(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    dev_db_path = tmp_path / "dev.db"
+    prod_db_path = tmp_path / "prod.db"
+    config_path = tmp_path / "smallex.toml"
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    _write_env_config(config_path, dev_db_path, prod_db_path)
+
+    with sqlite3.connect(dev_db_path) as conn:
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+        conn.commit()
+
+    with sqlite3.connect(prod_db_path) as conn:
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+        conn.execute("INSERT INTO users (email) VALUES (NULL)")
+        conn.commit()
+
+    (tests_dir / "no_null_emails.sql").write_text(
+        "SELECT * FROM users WHERE email IS NULL;",
+        encoding="utf-8",
+    )
+
+    exit_code_default = main(
+        ["run", "--config", str(config_path), "--tests-dir", str(tests_dir)]
+    )
+    out_default = capsys.readouterr().out
+    assert exit_code_default == 0
+    assert "1 passed in " in out_default
+
+    exit_code_prod = main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--tests-dir",
+            str(tests_dir),
+            "--env",
+            "prod",
+        ]
+    )
+    out_prod = capsys.readouterr().out
+    assert exit_code_prod == 1
+    assert "1 failed in " in out_prod

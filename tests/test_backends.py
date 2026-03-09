@@ -72,6 +72,55 @@ def test_snowflake_backend_connects_without_real_driver(monkeypatch: pytest.Monk
     assert called["database"] == "analytics"
 
 
+def test_snowflake_browser_auth_mode_maps_to_externalbrowser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: dict[str, object] = {}
+
+    class FakeCursor(CursorProtocol):
+        @property
+        def description(self) -> tuple[tuple[object, ...], ...] | None:
+            return None
+
+        def execute(self, query: str) -> None:
+            self.query = query
+
+        def fetchone(self) -> tuple[object, ...] | None:
+            return None
+
+    class FakeConnection(ConnectionProtocol):
+        def cursor(self) -> CursorProtocol:
+            return FakeCursor()
+
+        def close(self) -> None:
+            return None
+
+    def fake_connect(**kwargs: object) -> ConnectionProtocol:
+        called.update(kwargs)
+        return FakeConnection()
+
+    def fake_import_module(module_path: str) -> object:
+        assert module_path == "snowflake.connector"
+        return SimpleNamespace(connect=fake_connect)
+
+    monkeypatch.setattr("smallex.backends.base.importlib.import_module", fake_import_module)
+
+    backend = SnowflakeBackend()
+    backend.connect(
+        {
+            "auth_mode": "browser",
+            "account": "acme",
+            "user": "user",
+            "warehouse": "wh",
+            "database": "analytics",
+            "schema": "public",
+        }
+    )
+
+    assert called["authenticator"] == "externalbrowser"
+    assert "password" not in called
+
+
 def test_databricks_backend_requires_core_fields() -> None:
     backend = DatabricksBackend()
     with pytest.raises(ValueError, match="missing required connection fields"):
@@ -163,3 +212,140 @@ def test_load_config_supports_legacy_sqlite_module(tmp_path: Path) -> None:
     config = load_config(config_path)
     assert config.engine == "sqlite"
     assert config.connection["database"] == "sample.db"
+
+
+def test_load_config_selects_default_named_connection(tmp_path: Path) -> None:
+    config_path = tmp_path / "smallex.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[database]",
+                'engine = "sqlite"',
+                'default_connection = "development"',
+                "",
+                "[database.connections.development]",
+                'database = "dev.db"',
+                "",
+                "[database.connections.production]",
+                'database = "prod.db"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.engine == "sqlite"
+    assert config.connection["database"] == "dev.db"
+
+
+def test_load_config_selects_named_connection_from_env(tmp_path: Path) -> None:
+    config_path = tmp_path / "smallex.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[database]",
+                'engine = "sqlite"',
+                "",
+                "[database.connections.dev]",
+                'database = "dev.db"',
+                "",
+                "[database.connections.prod]",
+                'database = "prod.db"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path, env="prod")
+    assert config.engine == "sqlite"
+    assert config.connection["database"] == "prod.db"
+
+
+def test_load_config_requires_env_or_default_when_multiple_named_connections(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "smallex.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[database]",
+                'engine = "sqlite"',
+                "",
+                "[database.connections.dev]",
+                'database = "dev.db"',
+                "",
+                "[database.connections.prod]",
+                'database = "prod.db"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="defines multiple environments",
+    ):
+        load_config(config_path)
+
+
+def test_load_config_raises_for_unknown_named_connection(tmp_path: Path) -> None:
+    config_path = tmp_path / "smallex.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[database]",
+                'engine = "sqlite"',
+                "",
+                "[database.connections.dev]",
+                'database = "dev.db"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Unknown database connection environment"):
+        load_config(config_path, env="staging")
+
+
+def test_databricks_browser_auth_mode_maps_to_oauth(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: dict[str, object] = {}
+
+    class FakeCursor(CursorProtocol):
+        @property
+        def description(self) -> tuple[tuple[object, ...], ...] | None:
+            return None
+
+        def execute(self, query: str) -> None:
+            self.query = query
+
+        def fetchone(self) -> tuple[object, ...] | None:
+            return None
+
+    class FakeConnection(ConnectionProtocol):
+        def cursor(self) -> CursorProtocol:
+            return FakeCursor()
+
+        def close(self) -> None:
+            return None
+
+    def fake_connect(**kwargs: object) -> ConnectionProtocol:
+        called.update(kwargs)
+        return FakeConnection()
+
+    def fake_import_module(module_path: str) -> object:
+        assert module_path == "databricks.sql"
+        return SimpleNamespace(connect=fake_connect)
+
+    monkeypatch.setattr("smallex.backends.base.importlib.import_module", fake_import_module)
+
+    backend = DatabricksBackend()
+    backend.connect(
+        {
+            "auth_mode": "browser",
+            "server_hostname": "dbc.example.com",
+            "http_path": "/sql/1.0/warehouses/abc",
+        }
+    )
+
+    assert called["auth_type"] == "databricks-oauth"
+    assert "access_token" not in called

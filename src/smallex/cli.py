@@ -154,6 +154,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory containing .sql tests (default: tests).",
     )
     run_parser.add_argument(
+        "--env",
+        help=(
+            "Named database connection environment from "
+            "[database.connections.<name>] (for example: dev, prod)."
+        ),
+    )
+    run_parser.add_argument(
         "--color",
         choices=[ColorMode.AUTO, ColorMode.YES, ColorMode.NO],
         default=ColorMode.AUTO,
@@ -350,11 +357,12 @@ def _handle_run(config: str, tests_dir: str, color: str, args: argparse.Namespac
     tests_path = Path(tests_dir)
 
     try:
-        db_config = load_config(config_path)
+        db_config = load_config(config_path, env=args.env)
         failure_rows_cfg = _build_failure_rows_config(args)
         results, failed = run_all(
             config_path,
             tests_path,
+            env=args.env,
             failure_rows=failure_rows_cfg,
         )
     except Exception as exc:  # pragma: no cover - surfaced as CLI error behavior

@@ -10,6 +10,7 @@ smallex run [options]
 
 - `--config`: path to TOML config file (default: `smallex.toml`)
 - `--tests-dir`: root directory to discover `.sql` tests recursively (default: `tests`)
+- `--env`: named database connection environment from `[database.connections.<name>]`
 - `--color`: `auto | yes | no` (default: `auto`)
 - `--failure-rows-mode`: `none | terminal | csv | both` (default: `none`)
 - `--failure-rows-limit`: terminal rows per failing test (default: `5`)
@@ -43,6 +44,12 @@ Run from non-default config and tests location:
 
 ```bash
 smallex run --config conf/smallex.toml --tests-dir expectations
+```
+
+Run with a specific connection environment:
+
+```bash
+smallex run --env dev
 ```
 
 Show failing rows in terminal:

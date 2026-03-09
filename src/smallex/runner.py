@@ -105,7 +105,11 @@ def _as_mapping(value: object, *, field_name: str) -> Mapping[str, object]:
     return value
 
 
-def _parse_database_config(raw_database_cfg: Mapping[str, object]) -> DatabaseConfig:
+def _parse_database_config(
+    raw_database_cfg: Mapping[str, object],
+    *,
+    env: str | None = None,
+) -> DatabaseConfig:
     """Convert a raw TOML database section into a typed config object."""
 
     engine_raw = raw_database_cfg.get("engine")
@@ -118,15 +122,61 @@ def _parse_database_config(raw_database_cfg: Mapping[str, object]) -> DatabaseCo
     if not engine:
         raise ValueError("Config [database] must include 'engine'.")
 
-    connection_raw = raw_database_cfg.get("connection")
-    connection_cfg: Mapping[str, object]
-    if connection_raw is None:
-        connection_cfg = {}
-    else:
-        connection_cfg = _as_mapping(connection_raw, field_name="[database.connection]")
+    connections_raw = raw_database_cfg.get("connections")
+    default_connection_raw = raw_database_cfg.get("default_connection")
+    default_connection = (
+        default_connection_raw if isinstance(default_connection_raw, str) else None
+    )
+
+    connection_cfg: Mapping[str, object] = {}
+    if connections_raw is not None:
+        connections_cfg = _as_mapping(
+            connections_raw,
+            field_name="[database.connections]",
+        )
+        if env is not None:
+            selected_name = env
+        elif default_connection is not None:
+            selected_name = default_connection
+        elif "default" in connections_cfg:
+            selected_name = "default"
+        else:
+            selected_name = None
+
+        if selected_name is not None:
+            selected_connection = connections_cfg.get(selected_name)
+            if selected_connection is None:
+                raise ValueError(
+                    "Unknown database connection environment "
+                    f"'{selected_name}'. Available: {', '.join(sorted(connections_cfg))}"
+                )
+            connection_cfg = _as_mapping(
+                selected_connection,
+                field_name=f"[database.connections.{selected_name}]",
+            )
+        elif connections_cfg:
+            if len(connections_cfg) == 1:
+                only_name = next(iter(connections_cfg))
+                selected_connection = connections_cfg[only_name]
+                connection_cfg = _as_mapping(
+                    selected_connection,
+                    field_name=f"[database.connections.{only_name}]",
+                )
+            else:
+                raise ValueError(
+                    "Config [database.connections] defines multiple environments. "
+                    "Provide --env or set [database].default_connection."
+                )
 
     if not connection_cfg:
-        excluded = {"engine", "module"}
+        connection_raw = raw_database_cfg.get("connection")
+        if connection_raw is None:
+            connection_cfg = {}
+        else:
+            connection_cfg = _as_mapping(connection_raw, field_name="[database.connection]")
+
+    if not connection_cfg:
+        excluded = {"engine", "module", "connections", "default_connection"}
         connection_cfg = {
             key: value for key, value in raw_database_cfg.items() if key not in excluded
         }
@@ -134,7 +184,7 @@ def _parse_database_config(raw_database_cfg: Mapping[str, object]) -> DatabaseCo
     return DatabaseConfig(engine=engine, connection=dict(connection_cfg))
 
 
-def load_config(config_path: Path) -> DatabaseConfig:
+def load_config(config_path: Path, env: str | None = None) -> DatabaseConfig:
     """Load and validate CLI config from TOML file."""
 
     if not config_path.exists():
@@ -147,7 +197,7 @@ def load_config(config_path: Path) -> DatabaseConfig:
     if database_cfg_raw is None:
         raise ValueError("Config must define a [database] section.")
     database_cfg = _as_mapping(database_cfg_raw, field_name="[database]")
-    return _parse_database_config(database_cfg)
+    return _parse_database_config(database_cfg, env=env)
 
 
 def discover_sql_tests(tests_dir: Path) -> list[Path]:
@@ -311,11 +361,12 @@ def run_all(
     config_path: Path,
     tests_dir: Path,
     *,
+    env: str | None = None,
     failure_rows: FailureRowsConfig | None = None,
 ) -> tuple[list[TestResult], int]:
     """Run all SQL expectations and return results plus failed count."""
 
-    db_config = load_config(config_path)
+    db_config = load_config(config_path, env=env)
     cases = discover_sql_cases(tests_dir)
     if not cases:
         return [], 0

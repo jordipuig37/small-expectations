@@ -42,6 +42,22 @@ class BaseDatabaseBackend(ABC):
     connect_attr: ClassVar[str] = "connect"
     required_connection_fields: ClassVar[tuple[str, ...]] = ()
 
+    def prepare_connection_options(self, options: Mapping[str, object]) -> dict[str, object]:
+        """Transform user config into connector-ready options.
+
+        Subclasses can override this to map normalized ``auth_mode`` values to
+        connector-specific keys and to remove framework-level keys that should
+        not be passed to the underlying connector.
+
+        Args:
+            options: Raw connection mapping from config.
+
+        Returns:
+            dict[str, object]: Connector-ready connection options.
+        """
+
+        return dict(options)
+
     def validate_connection_options(self, options: Mapping[str, object]) -> None:
         """Validate connection options before opening a connection.
 
@@ -70,7 +86,8 @@ class BaseDatabaseBackend(ABC):
             ConnectionProtocol: A DB-API-like connection object.
         """
 
-        self.validate_connection_options(options)
+        prepared_options = self.prepare_connection_options(options)
+        self.validate_connection_options(prepared_options)
         module: ModuleType = importlib.import_module(self.module_path)
         connect_fn = getattr(module, self.connect_attr, None)
         if connect_fn is None or not callable(connect_fn):
@@ -78,4 +95,4 @@ class BaseDatabaseBackend(ABC):
                 f"Module '{self.module_path}' does not expose callable '{self.connect_attr}'."
             )
         connector = cast(Callable[..., ConnectionProtocol], connect_fn)
-        return connector(**dict(options))
+        return connector(**prepared_options)
