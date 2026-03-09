@@ -5,7 +5,7 @@ Simple SQL-based expectations runner.
 ## Install
 
 ```bash
-pip install .
+pip install small-expectations
 ```
 
 ## Usage

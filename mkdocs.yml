@@ -3,6 +3,7 @@ site_description: SQL-based expectation checks for data quality.
 site_url: https://jordipuig37.github.io/small-expectations/
 repo_url: https://github.com/jordipuig37/small-expectations
 repo_name: jordipuig37/small-expectations
+edit_uri: edit/main/docs/
 
 theme:
   name: material
@@ -10,6 +11,12 @@ theme:
     - navigation.instant
     - navigation.sections
     - content.code.copy
+    - navigation.tabs
+
+extra:
+  version:
+    provider: mike
+    default: latest
 
 markdown_extensions:
   - admonition
@@ -22,16 +29,20 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
+          paths: [src]
           options:
             show_source: false
             show_root_heading: true
             show_signature_annotations: true
 
 nav:
-  - Home: index.md
-  - Configuration: configuration.md
-  - CLI: cli.md
+  - Quickstart: index.md
+  - Advanced Guide: advanced.md
+  - Connection Specs: connections.md
+  - Configuration Reference: configuration.md
+  - CLI Reference: cli.md
   - API Reference:
       - Runner: api/runner.md
       - CLI Module: api/cli.md
+      - SQL Tests: api/sqltests.md
       - Backends: api/backends.md

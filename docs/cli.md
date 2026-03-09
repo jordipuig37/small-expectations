@@ -1,28 +1,58 @@
-# CLI
+# CLI Reference
 
-## Command
+## Main command
 
 ```bash
-smallex run [--config PATH] [--tests-dir PATH]
+smallex run [options]
 ```
 
 ## Options
 
-- `--config`: path to TOML config file. Default: `smallex.toml`.
-- `--tests-dir`: directory containing `.sql` tests. Default: `tests`.
+- `--config`: path to TOML config file (default: `smallex.toml`)
+- `--tests-dir`: root directory to discover `.sql` tests recursively (default: `tests`)
+- `--color`: `auto | yes | no` (default: `auto`)
+- `--failure-rows-mode`: `none | terminal | csv | both` (default: `none`)
+- `--failure-rows-limit`: terminal rows per failing test (default: `5`)
+- `--failure-rows-csv-limit`: max CSV rows per failing test (default: `10000`)
+- `--failure-rows-dir`: CSV output directory (default: `.smallex/failures`)
 
-## Output
+## What the run does
 
-For each SQL file, the CLI prints either `PASS` or `FAIL`.
-
-At the end, it prints a summary:
-
-```text
-Summary: <passed> passed, <failed> failed, <total> total
-```
+1. Loads TOML config.
+2. Discovers `.sql` files recursively under `--tests-dir`.
+3. Parses one or more logical tests per file.
+4. Executes each test query.
+5. Marks pass when query returns zero rows; fail otherwise.
+6. Prints pytest-style summary output.
 
 ## Exit codes
 
-- `0`: command succeeded and there were no failed checks
-- `1`: one or more checks failed
-- `2`: invalid configuration or runtime error
+- `0`: all tests passed
+- `1`: at least one test failed
+- `2`: invalid config, invalid CLI args, or runtime error
+
+## Examples
+
+Basic run:
+
+```bash
+smallex run
+```
+
+Run from non-default config and tests location:
+
+```bash
+smallex run --config conf/smallex.toml --tests-dir expectations
+```
+
+Show failing rows in terminal:
+
+```bash
+smallex run --failure-rows-mode terminal --failure-rows-limit 10
+```
+
+Export failing rows to CSV:
+
+```bash
+smallex run --failure-rows-mode csv --failure-rows-dir artifacts/smallex
+```

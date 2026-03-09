@@ -1,26 +1,16 @@
-# small-expectations
+# Quickstart
 
-`small-expectations` is a lightweight Python library and CLI that runs SQL checks against your database.
+Get from zero to first passing check in under 5 minutes.
 
-A SQL file passes when it returns zero rows, and fails when it returns one or more rows.
-
-## Installation
-
-From PyPI:
+## 1. Install
 
 ```bash
 pip install small-expectations
 ```
 
-From source in this repository:
+## 2. Create config
 
-```bash
-pip install .
-```
-
-## Quickstart
-
-Create a config file named `smallex.toml`:
+Create `smallex.toml`:
 
 ```toml
 [database]
@@ -30,25 +20,36 @@ engine = "sqlite"
 database = "example.db"
 ```
 
-Add SQL checks under a folder (for example `tests/`):
+## 3. Add a SQL check
+
+Create `tests/01_no_null_emails.sql`:
 
 ```sql
-SELECT * FROM users WHERE email IS NULL;
+SELECT *
+FROM users
+WHERE email IS NULL;
 ```
 
-Run checks:
+Rule of thumb:
+
+- returns `0` rows => pass
+- returns `>= 1` row => fail
+
+## 4. Run
 
 ```bash
 smallex run
 ```
 
-Expected behavior:
+You will see a pytest-style report with:
 
-- query returns no rows: `PASS`
-- query returns at least one row: `FAIL`
+- test session header
+- per-test progress (`.` for pass, `F` for fail)
+- optional failure details
+- final summary and proper exit code
 
-## Supported Engines
+## 5. Next steps
 
-- `sqlite`
-- `snowflake`
-- `databricks`
+- For production usage patterns, go to `Advanced Guide`.
+- For backend connection settings, go to `Connection Specs`.
+- For all CLI options, go to `CLI Reference`.

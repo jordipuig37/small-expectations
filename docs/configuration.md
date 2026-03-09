@@ -1,20 +1,20 @@
-# Configuration
+# Configuration Reference
 
-The CLI reads configuration from a TOML file (`smallex.toml` by default).
+The CLI reads TOML config from `smallex.toml` by default.
 
-## Basic format
+## Schema
 
 ```toml
 [database]
-engine = "sqlite"
+engine = "sqlite" # sqlite | snowflake | databricks
 
 [database.connection]
-database = "example.db"
+# backend-specific connector args
 ```
 
 ## `database.engine`
 
-Supported values:
+Allowed values:
 
 - `sqlite`
 - `snowflake`
@@ -22,45 +22,30 @@ Supported values:
 
 ## `database.connection`
 
-A table of connector keyword arguments passed directly to the selected backend.
+A table containing connector arguments. Values are passed directly to the selected connector after required field validation.
 
-### SQLite example
+See `Connection Specs` for backend-by-backend required and optional fields.
+
+## Legacy compatibility
+
+For backward compatibility, if `[database.connection]` is missing, keys in `[database]` (except `engine` and `module`) are treated as connection options.
+
+Legacy-style SQLite example:
 
 ```toml
 [database]
 engine = "sqlite"
-
-[database.connection]
 database = "example.db"
 ```
 
-### Snowflake example
+## File location and CLI override
 
-```toml
-[database]
-engine = "snowflake"
+Default file path:
 
-[database.connection]
-account = "my-account"
-user = "my-user"
-password = "my-password"
-warehouse = "my-warehouse"
-database = "my-database"
-schema = "public"
+- `smallex.toml`
+
+Override path with:
+
+```bash
+smallex run --config path/to/smallex.toml
 ```
-
-### Databricks example
-
-```toml
-[database]
-engine = "databricks"
-
-[database.connection]
-server_hostname = "adb-1234567890123456.7.azuredatabricks.net"
-http_path = "/sql/1.0/warehouses/abc123"
-access_token = "dapi..."
-```
-
-## Legacy compatibility
-
-If `database.connection` is not present, top-level keys inside `[database]` (except `engine` and `module`) are treated as connection options.
