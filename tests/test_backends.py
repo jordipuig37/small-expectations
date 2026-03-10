@@ -72,53 +72,19 @@ def test_snowflake_backend_connects_without_real_driver(monkeypatch: pytest.Monk
     assert called["database"] == "analytics"
 
 
-def test_snowflake_browser_auth_mode_maps_to_externalbrowser(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    called: dict[str, object] = {}
-
-    class FakeCursor(CursorProtocol):
-        @property
-        def description(self) -> tuple[tuple[object, ...], ...] | None:
-            return None
-
-        def execute(self, query: str) -> None:
-            self.query = query
-
-        def fetchone(self) -> tuple[object, ...] | None:
-            return None
-
-    class FakeConnection(ConnectionProtocol):
-        def cursor(self) -> CursorProtocol:
-            return FakeCursor()
-
-        def close(self) -> None:
-            return None
-
-    def fake_connect(**kwargs: object) -> ConnectionProtocol:
-        called.update(kwargs)
-        return FakeConnection()
-
-    def fake_import_module(module_path: str) -> object:
-        assert module_path == "snowflake.connector"
-        return SimpleNamespace(connect=fake_connect)
-
-    monkeypatch.setattr("smallex.backends.base.importlib.import_module", fake_import_module)
-
+def test_snowflake_browser_auth_mode_is_rejected() -> None:
     backend = SnowflakeBackend()
-    backend.connect(
-        {
-            "auth_mode": "browser",
-            "account": "acme",
-            "user": "user",
-            "warehouse": "wh",
-            "database": "analytics",
-            "schema": "public",
-        }
-    )
-
-    assert called["authenticator"] == "externalbrowser"
-    assert "password" not in called
+    with pytest.raises(ValueError, match="Unsupported auth_mode for snowflake"):
+        backend.connect(
+            {
+                "auth_mode": "browser",
+                "account": "acme",
+                "user": "user",
+                "warehouse": "wh",
+                "database": "analytics",
+                "schema": "public",
+            }
+        )
 
 
 def test_databricks_backend_requires_core_fields() -> None:
@@ -307,45 +273,13 @@ def test_load_config_raises_for_unknown_named_connection(tmp_path: Path) -> None
         load_config(config_path, env="staging")
 
 
-def test_databricks_browser_auth_mode_maps_to_oauth(monkeypatch: pytest.MonkeyPatch) -> None:
-    called: dict[str, object] = {}
-
-    class FakeCursor(CursorProtocol):
-        @property
-        def description(self) -> tuple[tuple[object, ...], ...] | None:
-            return None
-
-        def execute(self, query: str) -> None:
-            self.query = query
-
-        def fetchone(self) -> tuple[object, ...] | None:
-            return None
-
-    class FakeConnection(ConnectionProtocol):
-        def cursor(self) -> CursorProtocol:
-            return FakeCursor()
-
-        def close(self) -> None:
-            return None
-
-    def fake_connect(**kwargs: object) -> ConnectionProtocol:
-        called.update(kwargs)
-        return FakeConnection()
-
-    def fake_import_module(module_path: str) -> object:
-        assert module_path == "databricks.sql"
-        return SimpleNamespace(connect=fake_connect)
-
-    monkeypatch.setattr("smallex.backends.base.importlib.import_module", fake_import_module)
-
+def test_databricks_browser_auth_mode_is_rejected() -> None:
     backend = DatabricksBackend()
-    backend.connect(
-        {
-            "auth_mode": "browser",
-            "server_hostname": "dbc.example.com",
-            "http_path": "/sql/1.0/warehouses/abc",
-        }
-    )
-
-    assert called["auth_type"] == "databricks-oauth"
-    assert "access_token" not in called
+    with pytest.raises(ValueError, match="Unsupported auth_mode for databricks"):
+        backend.connect(
+            {
+                "auth_mode": "browser",
+                "server_hostname": "dbc.example.com",
+                "http_path": "/sql/1.0/warehouses/abc",
+            }
+        )

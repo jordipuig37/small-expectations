@@ -8,9 +8,11 @@ import platform
 import shutil
 import sys
 import time
+from contextlib import closing
 from pathlib import Path
 
 from smallex import __version__
+from smallex.backends import get_backend
 from smallex.runner import (
     FailureRowsConfig,
     FailureRowsMode,
@@ -27,6 +29,7 @@ BLUE = "\033[34m"
 WHITE = "\033[37m"
 CYAN = "\033[36m"
 BOLD = "\033[1m"
+SUPPORTED_ENGINES = ("sqlite", "snowflake", "databricks")
 
 
 class ColorMode:
@@ -192,7 +195,164 @@ def build_parser() -> argparse.ArgumentParser:
         default=".smallex/failures",
         help="Directory for failure CSV outputs (default: .smallex/failures).",
     )
+
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Create starter config and sample SQL test files.",
+    )
+    init_parser.add_argument(
+        "--engine",
+        choices=SUPPORTED_ENGINES,
+        default="sqlite",
+        help="Database engine for starter config (default: sqlite).",
+    )
+    init_parser.add_argument(
+        "--config",
+        default="smallex.toml",
+        help="Path for generated TOML config (default: smallex.toml).",
+    )
+    init_parser.add_argument(
+        "--tests-dir",
+        default="tests",
+        help="Directory where starter SQL test will be created (default: tests).",
+    )
+    init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing generated files.",
+    )
+
+    validate_parser = subparsers.add_parser(
+        "validate-config",
+        help="Validate config and attempt a database connection.",
+    )
+    validate_parser.add_argument(
+        "--config",
+        default="smallex.toml",
+        help="Path to TOML config file (default: smallex.toml).",
+    )
+    validate_parser.add_argument(
+        "--env",
+        help=(
+            "Named database connection environment from "
+            "[database.connections.<name>] (for example: dev, prod)."
+        ),
+    )
     return parser
+
+
+def _starter_connection_block(engine: str) -> list[str]:
+    if engine == "sqlite":
+        return ['database = "example.db"']
+    if engine == "snowflake":
+        return [
+            'auth_mode = "password"',
+            'account = "your-account"',
+            'user = "your-user"',
+            'password = "your-password"',
+            'warehouse = "your-warehouse"',
+            'database = "your-database"',
+            'schema = "public"',
+        ]
+    return [
+        'auth_mode = "token"',
+        'server_hostname = "adb-1234567890123456.7.azuredatabricks.net"',
+        'http_path = "/sql/1.0/warehouses/your-warehouse-id"',
+        'access_token = "your-access-token"',
+    ]
+
+
+def _build_starter_config(engine: str) -> str:
+    lines = [
+        "[database]",
+        f'engine = "{engine}"',
+        'default_connection = "dev"',
+        "",
+        "[database.connections.dev]",
+        *_starter_connection_block(engine),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _build_starter_test_sql() -> str:
+    return "\n".join(
+        [
+            "-- smallex:test: no_null_emails",
+            "-- smallex:message: users.email should never be null",
+            "SELECT id, email",
+            "FROM users",
+            "WHERE email IS NULL;",
+            "",
+        ]
+    )
+
+
+def _connection_error_hint(exc: BaseException) -> str | None:
+    status = _http_status_from_exception(exc)
+    if status == 404:
+        return "Account or host not found (HTTP 404). Verify the account/hostname values."
+    if status in {401, 403}:
+        return f"Authentication failed (HTTP {status}). Check the user/password/token values."
+    if status is not None:
+        return f"Backend returned HTTP {status} while validating the connection."
+    return None
+
+
+def _http_status_from_exception(exc: BaseException) -> int | None:
+    seen: set[int] = set()
+    queue: list[BaseException | None] = [exc]
+    while queue:
+        current = queue.pop(0)
+        if current is None:
+            continue
+        key = id(current)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        status = getattr(current, "status_code", None)
+        if isinstance(status, int):
+            return status
+
+        response = getattr(current, "response", None)
+        if response is not None:
+            response_status = getattr(response, "status_code", None)
+            if isinstance(response_status, int):
+                return response_status
+
+        cause = getattr(current, "__cause__", None)
+        context = getattr(current, "__context__", None)
+        if isinstance(cause, BaseException):
+            queue.append(cause)
+        if isinstance(context, BaseException):
+            queue.append(context)
+    return None
+
+
+def _write_if_allowed(path: Path, content: str, *, force: bool) -> None:
+    if path.exists() and not force:
+        raise FileExistsError(
+            f"File already exists: {path}. Use --force to overwrite."
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _diagnostic_hint(exc: Exception) -> str:
+    if isinstance(exc, ModuleNotFoundError):
+        return (
+            "Connector package is not installed for this engine. "
+            "Install optional dependencies for your backend."
+        )
+
+    message = str(exc).lower()
+    if any(token in message for token in ("password", "auth", "token", "login")):
+        return "Authentication failed. Check user/password/token/auth_mode values."
+    if any(token in message for token in ("timeout", "timed out", "network", "dns", "host")):
+        return "Network connectivity issue. Check hostname, firewall, VPN, and DNS."
+    if any(token in message for token in ("warehouse", "schema", "database", "catalog")):
+        return "Object resolution issue. Check database/schema/warehouse and permissions."
+    return "Review connection settings and backend-specific required fields."
 
 
 def _print_header(
@@ -272,27 +432,37 @@ def _print_failures(
             print(_paint(f"Failure rows CSV: {result.csv_path}", RED, enabled=color_enabled))
 
 
-# TODO: Make the result aligned, by considering how long will be the longest
-# row, so that the result is more visually appealing and readable
 def _print_failure_rows(result: TestResult, *, color_enabled: bool) -> None:
     """Print failing sample rows with a single header and raw row values."""
 
     print(_paint("Sample failing rows:", RED, enabled=color_enabled))
     header_columns = list(result.columns)
-    first_row_len = len(result.sample_rows[0])
-    if len(header_columns) < first_row_len:
+    max_row_len = max((len(row) for row in result.sample_rows), default=0)
+    max_cols = max(len(header_columns), max_row_len)
+    if len(header_columns) < max_cols:
         header_columns.extend(
-            f"column_{index + 1}" for index in range(len(header_columns), first_row_len)
+            f"column_{index + 1}" for index in range(len(header_columns), max_cols)
         )
-    print(_paint(f"  {' | '.join(header_columns)}", RED, enabled=color_enabled))
+    column_widths = [len(header_columns[index]) for index in range(max_cols)]
+    repr_rows: list[list[str]] = []
     for row in result.sample_rows:
-        print(
-            _paint(
-                f"  {' | '.join(repr(value) for value in row)}",
-                RED,
-                enabled=color_enabled,
-            )
+        row_repr = [repr(value) for value in row]
+        if len(row_repr) < max_cols:
+            row_repr.extend("" for _ in range(max_cols - len(row_repr)))
+        for index, value in enumerate(row_repr):
+            if index >= len(column_widths):
+                column_widths.extend([0] * (index + 1 - len(column_widths)))
+            column_widths[index] = max(column_widths[index], len(value))
+        repr_rows.append(row_repr)
+    header_line = "  " + " | ".join(
+        header_columns[index].ljust(column_widths[index]) for index in range(max_cols)
+    )
+    print(_paint(header_line, RED, enabled=color_enabled))
+    for row_repr in repr_rows:
+        line = "  " + " | ".join(
+            row_repr[index].ljust(column_widths[index]) for index in range(max_cols)
         )
+        print(_paint(line, RED, enabled=color_enabled))
     if result.has_more_rows:
         print(
             _paint(
@@ -396,6 +566,64 @@ def _handle_run(config: str, tests_dir: str, color: str, args: argparse.Namespac
     return 1 if failed else 0
 
 
+def _handle_init(engine: str, config: str, tests_dir: str, *, force: bool) -> int:
+    config_path = Path(config)
+    tests_path = Path(tests_dir)
+    sample_test_path = tests_path / "01_no_null_emails.sql"
+
+    try:
+        _write_if_allowed(config_path, _build_starter_config(engine), force=force)
+        _write_if_allowed(sample_test_path, _build_starter_test_sql(), force=force)
+    except Exception as exc:  # pragma: no cover - surfaced as CLI error behavior
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Created config: {config_path}")
+    print(f"Created sample test: {sample_test_path}")
+    print("Next step: run `smallex validate-config` then `smallex run`.")
+    return 0
+
+
+def _handle_validate_config(config: str, env: str | None) -> int:
+    config_path = Path(config)
+    db_config = None
+    try:
+        db_config = load_config(config_path, env=env)
+        backend = get_backend(db_config.engine)
+        with closing(backend.connect(db_config.connection)) as connection:
+            backend.test_connection(connection, db_config.connection)
+    except Exception as exc:  # pragma: no cover - surfaced as CLI error behavior
+        print("Config validation: FAILED", file=sys.stderr)
+        print(
+            f"Engine: {db_config.engine if db_config is not None else 'unknown'}",
+            file=sys.stderr,
+        )
+        print(
+            "Connection keys: "
+            + (
+                _safe_connection_details(db_config.connection)
+                if db_config is not None
+                else "unknown"
+            ),
+            file=sys.stderr,
+        )
+        if env is not None:
+            print(f"Environment: {env}", file=sys.stderr)
+        connection_hint = _connection_error_hint(exc)
+        if connection_hint is not None:
+            print(connection_hint, file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
+        print(f"Hint: {_diagnostic_hint(exc)}", file=sys.stderr)
+        return 2
+
+    print("Config validation: OK")
+    print(f"Engine: {db_config.engine}")
+    if env is not None:
+        print(f"Environment: {env}")
+    print(f"Connection keys: {_safe_connection_details(db_config.connection)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint used by both console script and tests."""
 
@@ -404,6 +632,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "run":
         return _handle_run(args.config, args.tests_dir, args.color, args)
+    if args.command == "init":
+        return _handle_init(args.engine, args.config, args.tests_dir, force=args.force)
+    if args.command == "validate-config":
+        return _handle_validate_config(args.config, args.env)
 
     parser.error(f"Unknown command: {args.command}")
     return 2

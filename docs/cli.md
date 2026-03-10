@@ -6,6 +6,11 @@
 smallex run [options]
 ```
 
+Other commands:
+
+- `smallex init`: scaffold starter config + sample SQL test
+- `smallex validate-config`: validate config and test database connectivity
+
 ## Options
 
 - `--config`: path to TOML config file (default: `smallex.toml`)
@@ -50,6 +55,18 @@ Run with a specific connection environment:
 
 ```bash
 smallex run --env dev
+```
+
+Initialize a new project:
+
+```bash
+smallex init --engine sqlite
+```
+
+Validate configuration and connection:
+
+```bash
+smallex validate-config --config smallex.toml --env dev
 ```
 
 Show failing rows in terminal:

@@ -10,6 +10,14 @@ pip install small-expectations
 
 ## 2. Create config
 
+Fast path:
+
+```bash
+smallex init --engine sqlite
+```
+
+Or create `smallex.toml` manually:
+
 Create `smallex.toml`:
 
 ```toml

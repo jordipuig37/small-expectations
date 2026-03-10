@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 from abc import ABC
+from contextlib import closing
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Callable, ClassVar, Mapping, cast
@@ -45,7 +46,7 @@ class BaseDatabaseBackend(ABC):
     def prepare_connection_options(self, options: Mapping[str, object]) -> dict[str, object]:
         """Transform user config into connector-ready options.
 
-        Subclasses can override this to map normalized ``auth_mode`` values to
+        Subclasses can override this to map normalized values to
         connector-specific keys and to remove framework-level keys that should
         not be passed to the underlying connector.
 
@@ -96,3 +97,14 @@ class BaseDatabaseBackend(ABC):
             )
         connector = cast(Callable[..., ConnectionProtocol], connect_fn)
         return connector(**prepared_options)
+
+    def test_connection(
+        self,
+        connection: ConnectionProtocol,
+        options: Mapping[str, object],
+    ) -> None:
+        """Verify a backend connection is usable."""
+
+        with closing(connection.cursor()) as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()

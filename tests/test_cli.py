@@ -305,3 +305,99 @@ def test_run_command_supports_named_connection_environment(
     out_prod = capsys.readouterr().out
     assert exit_code_prod == 1
     assert "1 failed in " in out_prod
+
+
+def test_init_command_creates_starter_config_and_sample_test(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "smallex.toml"
+    tests_dir = tmp_path / "tests"
+
+    exit_code = main(
+        [
+            "init",
+            "--engine",
+            "sqlite",
+            "--config",
+            str(config_path),
+            "--tests-dir",
+            str(tests_dir),
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert config_path.exists()
+    assert (tests_dir / "01_no_null_emails.sql").exists()
+    config_text = config_path.read_text(encoding="utf-8")
+    test_text = (tests_dir / "01_no_null_emails.sql").read_text(encoding="utf-8")
+    assert 'engine = "sqlite"' in config_text
+    assert 'default_connection = "dev"' in config_text
+    assert "-- smallex:test: no_null_emails" in test_text
+    assert "-- smallex:message: users.email should never be null" in test_text
+    assert "Created config:" in out
+
+
+def test_init_command_fails_when_target_files_exist_without_force(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "smallex.toml"
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    sample_test = tests_dir / "01_no_null_emails.sql"
+    config_path.write_text("existing", encoding="utf-8")
+    sample_test.write_text("existing", encoding="utf-8")
+
+    exit_code = main(
+        [
+            "init",
+            "--engine",
+            "sqlite",
+            "--config",
+            str(config_path),
+            "--tests-dir",
+            str(tests_dir),
+        ]
+    )
+    err = capsys.readouterr().err
+
+    assert exit_code == 2
+    assert "File already exists:" in err
+
+
+def test_validate_config_command_succeeds_for_sqlite(tmp_path: Path, capsys: CaptureFixture[str]) -> None:
+    db_path = tmp_path / "test.db"
+    config_path = tmp_path / "smallex.toml"
+    _write_config(config_path, db_path)
+
+    exit_code = main(["validate-config", "--config", str(config_path)])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Config validation: OK" in out
+    assert "Engine: sqlite" in out
+
+
+def test_validate_config_command_fails_for_invalid_connection(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "smallex.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[database]",
+                'engine = "sqlite"',
+                "",
+                "[database.connection]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(["validate-config", "--config", str(config_path)])
+    err = capsys.readouterr().err
+
+    assert exit_code == 2
+    assert "Config validation: FAILED" in err
+    assert "Engine: sqlite" in err
+    assert "Hint:" in err
