@@ -43,3 +43,25 @@ def test_parse_sql_file_with_markers_returns_multiple_cases(tmp_path: Path) -> N
     assert cases[1].name == "no_blank_emails"
     assert cases[1].message == "users.email should never be blank"
     assert "email = ''" in cases[1].query
+
+
+def test_parse_sql_file_without_markers_splits_statements(tmp_path: Path) -> None:
+    sql_path = tmp_path / "multi.sql"
+    sql_path.write_text(
+        "\n".join(
+            [
+                "SELECT 1;",
+                "",
+                "SELECT 2;",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cases = parse_sql_file(sql_path)
+
+    assert len(cases) == 2
+    assert cases[0].name == "multi"
+    assert cases[0].query == "SELECT 1;"
+    assert cases[1].name == "multi_2"
+    assert cases[1].query == "SELECT 2;"

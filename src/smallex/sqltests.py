@@ -55,17 +55,69 @@ def _finalize_case(
     pending_name: str | None,
     pending_message: str | None,
     sql_lines: list[str],
-) -> tuple[int, str | None, str | None]:
+) -> int:
     """Finalize a buffered SQL case if it contains executable SQL."""
 
     query = "".join(sql_lines).strip()
     if not query:
-        return case_index, pending_name, pending_message
+        return case_index
 
     case_index += 1
     name = pending_name if pending_name else _build_default_name(path, case_index)
     cases.append(SQLTestCase(path=path, name=name, message=pending_message, query=query))
-    return case_index, None, None
+    return case_index
+
+
+def _split_sql_statements(sql_text: str) -> list[str]:
+    """Split SQL text into statements, preserving semicolons when present."""
+
+    statements: list[str] = []
+    buffer: list[str] = []
+    in_single = False
+    in_double = False
+    index = 0
+    length = len(sql_text)
+
+    while index < length:
+        char = sql_text[index]
+
+        if char == "'" and not in_double:
+            if in_single and index + 1 < length and sql_text[index + 1] == "'":
+                buffer.append("''")
+                index += 2
+                continue
+            in_single = not in_single
+            buffer.append(char)
+            index += 1
+            continue
+
+        if char == '"' and not in_single:
+            if in_double and index + 1 < length and sql_text[index + 1] == '"':
+                buffer.append('""')
+                index += 2
+                continue
+            in_double = not in_double
+            buffer.append(char)
+            index += 1
+            continue
+
+        if char == ";" and not in_single and not in_double:
+            buffer.append(char)
+            statement = "".join(buffer).strip()
+            if statement:
+                statements.append(statement)
+            buffer = []
+            index += 1
+            continue
+
+        buffer.append(char)
+        index += 1
+
+    statement = "".join(buffer).strip()
+    if statement:
+        statements.append(statement)
+
+    return statements
 
 
 def parse_sql_file(path: Path) -> list[SQLTestCase]:
@@ -78,7 +130,7 @@ def parse_sql_file(path: Path) -> list[SQLTestCase]:
     Marker semantics:
         - ``test`` starts a new logical test block when encountered after SQL.
         - ``message`` attaches to the next finalized test block.
-        - files without markers still produce one test case using full contents.
+        - files without markers split into one test per SQL statement.
 
     Args:
         path: SQL file to parse.
@@ -94,10 +146,13 @@ def parse_sql_file(path: Path) -> list[SQLTestCase]:
     pending_message: str | None = None
     case_index = 0
 
+    has_markers = False
+
     for line in lines:
         stripped = line.strip()
         if stripped.startswith(TEST_MARKER):
-            case_index, _, _ = _finalize_case(
+            has_markers = True
+            case_index = _finalize_case(
                 cases=cases,
                 path=path,
                 case_index=case_index,
@@ -111,19 +166,34 @@ def parse_sql_file(path: Path) -> list[SQLTestCase]:
             continue
 
         if stripped.startswith(MESSAGE_MARKER):
+            has_markers = True
             pending_message = _parse_marker_value(stripped, MESSAGE_MARKER) or None
             continue
 
         sql_lines.append(line)
 
-    case_index, _, _ = _finalize_case(
-        cases=cases,
-        path=path,
-        case_index=case_index,
-        pending_name=pending_name,
-        pending_message=pending_message,
-        sql_lines=sql_lines,
-    )
+    if has_markers:
+        _finalize_case(
+            cases=cases,
+            path=path,
+            case_index=case_index,
+            pending_name=pending_name,
+            pending_message=pending_message,
+            sql_lines=sql_lines,
+        )
+        return cases
+
+    for statement in _split_sql_statements("".join(lines)):
+        case_index += 1
+        cases.append(
+            SQLTestCase(
+                path=path,
+                name=_build_default_name(path, case_index),
+                message=None,
+                query=statement,
+            )
+        )
+
     return cases
 
 
