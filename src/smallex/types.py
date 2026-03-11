@@ -14,6 +14,9 @@ class CursorProtocol(Protocol):
     def fetchone(self) -> Sequence[object] | None:
         """Fetch one row from the previous statement result."""
 
+    def close(self) -> None:
+        """Close the underlying cursor resources."""
+
     @property
     def description(self) -> Sequence[Sequence[object]] | None:
         """Optional DB-API column metadata for the active result set."""

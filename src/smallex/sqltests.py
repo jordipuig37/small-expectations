@@ -36,7 +36,7 @@ class SQLTestCase:
 def _parse_marker_value(line: str, marker: str) -> str:
     """Extract and normalize marker payload from a comment line."""
 
-    return line[len(marker) :].strip()
+    return line[len(marker):].strip()
 
 
 def _build_default_name(path: Path, case_index: int) -> str:
@@ -63,8 +63,10 @@ def _finalize_case(
         return case_index
 
     case_index += 1
-    name = pending_name if pending_name else _build_default_name(path, case_index)
-    cases.append(SQLTestCase(path=path, name=name, message=pending_message, query=query))
+    name = pending_name if pending_name else _build_default_name(
+        path, case_index)
+    cases.append(SQLTestCase(path=path, name=name,
+                 message=pending_message, query=query))
     return case_index
 
 
@@ -167,7 +169,8 @@ def parse_sql_file(path: Path) -> list[SQLTestCase]:
 
         if stripped.startswith(MESSAGE_MARKER):
             has_markers = True
-            pending_message = _parse_marker_value(stripped, MESSAGE_MARKER) or None
+            pending_message = _parse_marker_value(
+                stripped, MESSAGE_MARKER) or None
             continue
 
         sql_lines.append(line)

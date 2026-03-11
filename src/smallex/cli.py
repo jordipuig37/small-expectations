@@ -214,7 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument(
         "--tests-dir",
         default="tests",
-        help="Directory where starter SQL test will be created (default: tests).",
+        help="Directory where starter SQL test will be created (default: tests).",  # noqa: E501
     )
     init_parser.add_argument(
         "--force",
@@ -290,11 +290,11 @@ def _build_starter_test_sql() -> str:
 def _connection_error_hint(exc: BaseException) -> str | None:
     status = _http_status_from_exception(exc)
     if status == 404:
-        return "Account or host not found (HTTP 404). Verify the account/hostname values."
+        return "Account or host not found (HTTP 404). Verify the account/hostname values."  # noqa: E501
     if status in {401, 403}:
-        return f"Authentication failed (HTTP {status}). Check the user/password/token values."
+        return f"Authentication failed (HTTP {status}). Check the user/password/token values."  # noqa: E501
     if status is not None:
-        return f"Backend returned HTTP {status} while validating the connection."
+        return f"Backend returned HTTP {status} while validating the connection."  # noqa: E501
     return None
 
 
@@ -346,12 +346,12 @@ def _diagnostic_hint(exc: Exception) -> str:
         )
 
     message = str(exc).lower()
-    if any(token in message for token in ("password", "auth", "token", "login")):
-        return "Authentication failed. Check user/password/token/auth_mode values."
-    if any(token in message for token in ("timeout", "timed out", "network", "dns", "host")):
-        return "Network connectivity issue. Check hostname, firewall, VPN, and DNS."
-    if any(token in message for token in ("warehouse", "schema", "database", "catalog")):
-        return "Object resolution issue. Check database/schema/warehouse and permissions."
+    if any(token in message for token in ("password", "auth", "token", "login")):  # noqa: E501
+        return "Authentication failed. Check user/password/token/auth_mode values."  # noqa: E501
+    if any(token in message for token in ("timeout", "timed out", "network", "dns", "host")):  # noqa: E501
+        return "Network connectivity issue. Check hostname, firewall, VPN, and DNS."  # noqa: E501
+    if any(token in message for token in ("warehouse", "schema", "database", "catalog")):  # noqa: E501
+        return "Object resolution issue. Check database/schema/warehouse and permissions."  # noqa: E501
     return "Review connection settings and backend-specific required fields."
 
 
@@ -364,19 +364,25 @@ def _print_header(
 ) -> None:
     """Print pytest-like session header lines."""
 
-    print(_section("test session starts", color_enabled=color_enabled, title_bold=True))
+    print(_section("test session starts",
+          color_enabled=color_enabled, title_bold=True))
     print(
-        f"platform {platform.system().lower()} -- Python {platform.python_version()}, "
-        f"smallex-{__version__}"
+        f"platform {platform.system().lower()} -- Python "
+        f"{platform.python_version()}, smallex-{__version__}"
     )
     print(f"database: {engine_name} ({connection_details})")
     print(f"rootdir: {Path.cwd()}")
     label = "item" if collected == 1 else "items"
-    print(_paint(f"collected {collected} {label}", enabled=color_enabled, bold=True))
+    print(_paint(f"collected {collected} {label}",
+          enabled=color_enabled, bold=True))
     print()
 
 
-def _print_test_progress(results: list[TestResult], *, color_enabled: bool) -> None:
+def _print_test_progress(
+        results: list[TestResult],
+        *,
+        color_enabled: bool
+        ) -> None:
     """Print pytest-like progress grouped by SQL file."""
 
     grouped: dict[str, list[TestResult]] = {}
@@ -386,7 +392,8 @@ def _print_test_progress(results: list[TestResult], *, color_enabled: bool) -> N
 
     for path, file_results in grouped.items():
         colored_symbols = "".join(
-            _paint("." if result.passed else "F", GREEN if result.passed else RED, enabled=color_enabled)
+            _paint("." if result.passed else "F",
+                   GREEN if result.passed else RED, enabled=color_enabled)
             for result in file_results
         )
         print(f"{path} {colored_symbols}")
@@ -417,14 +424,20 @@ def _print_failures(
         print("_" * _terminal_width())
         print(_paint(result.node_id, RED, enabled=color_enabled))
         if result.error_message:
-            print(_paint(f"SQL error: {result.error_message}", RED, enabled=color_enabled))
+            print(
+                _paint(f"SQL error: {result.error_message}",
+                       RED,
+                       enabled=color_enabled)
+                )
             continue
         if result.message:
-            print(_paint(f"Message: {result.message}", RED, enabled=color_enabled))
+            print(_paint(f"Message: {result.message}",
+                  RED, enabled=color_enabled))
         else:
             print(
                 _paint(
-                    "Message: Query returned at least one row. Expected: zero rows.",
+                    "Message: Query returned at least one row. Expected: "
+                    "zero rows.",
                     RED,
                     enabled=color_enabled,
                 )
@@ -432,7 +445,12 @@ def _print_failures(
         if failure_rows_cfg.terminal_enabled() and result.sample_rows:
             _print_failure_rows(result, color_enabled=color_enabled)
         if result.csv_path is not None:
-            print(_paint(f"Failure rows CSV: {result.csv_path}", RED, enabled=color_enabled))
+            print(
+                _paint(
+                    f"Failure rows CSV: {result.csv_path}",
+                    RED,
+                    enabled=color_enabled)
+                )
 
 
 def _print_failure_rows(result: TestResult, *, color_enabled: bool) -> None:
@@ -444,7 +462,8 @@ def _print_failure_rows(result: TestResult, *, color_enabled: bool) -> None:
     max_cols = max(len(header_columns), max_row_len)
     if len(header_columns) < max_cols:
         header_columns.extend(
-            f"column_{index + 1}" for index in range(len(header_columns), max_cols)
+            f"column_{index + 1}"
+            for index in range(len(header_columns), max_cols)
         )
     column_widths = [len(header_columns[index]) for index in range(max_cols)]
     repr_rows: list[list[str]] = []
@@ -458,18 +477,21 @@ def _print_failure_rows(result: TestResult, *, color_enabled: bool) -> None:
             column_widths[index] = max(column_widths[index], len(value))
         repr_rows.append(row_repr)
     header_line = "  " + " | ".join(
-        header_columns[index].ljust(column_widths[index]) for index in range(max_cols)
+        header_columns[index].ljust(column_widths[index])
+        for index in range(max_cols)
     )
     print(_paint(header_line, RED, enabled=color_enabled))
     for row_repr in repr_rows:
         line = "  " + " | ".join(
-            row_repr[index].ljust(column_widths[index]) for index in range(max_cols)
+            row_repr[index].ljust(column_widths[index])
+            for index in range(max_cols)
         )
         print(_paint(line, RED, enabled=color_enabled))
     if result.has_more_rows:
         print(
             _paint(
-                f"  ... more rows exist (showing first {len(result.sample_rows)})",
+                "  ... more rows exist (showing first "
+                f"{len(result.sample_rows)})",
                 RED,
                 enabled=color_enabled,
             )
@@ -499,7 +521,8 @@ def _print_footer(
             if result.error_message:
                 detail = f"SQL error: {result.error_message}"
             else:
-                detail = result.message if result.message else "Query returned one or more rows"
+                detail = result.message if result.message \
+                    else "Query returned one or more rows"
             print(f"{label} {result.node_id} - {detail}")
 
     status_parts: list[str] = []
@@ -537,7 +560,12 @@ def _build_failure_rows_config(args: argparse.Namespace) -> FailureRowsConfig:
     )
 
 
-def _handle_run(config: str, tests_dir: str, color: str, args: argparse.Namespace) -> int:
+def _handle_run(
+        config: str,
+        tests_dir: str,
+        color: str,
+        args: argparse.Namespace
+        ) -> int:
     """Execute ``smallex run`` and map outcomes to an exit code."""
 
     started = time.perf_counter()
@@ -554,7 +582,7 @@ def _handle_run(config: str, tests_dir: str, color: str, args: argparse.Namespac
             env=args.env,
             failure_rows=failure_rows_cfg,
         )
-    except Exception as exc:  # pragma: no cover - surfaced as CLI error behavior
+    except Exception as exc:  # pragma: no cover - surfaced as CLI error
         print(f"Error: {exc}", file=sys.stderr)
         return 2
 
@@ -567,20 +595,29 @@ def _handle_run(config: str, tests_dir: str, color: str, args: argparse.Namespac
     if results:
         _print_test_progress(results, color_enabled=color_enabled)
     duration = time.perf_counter() - started
-    _print_failures(results, color_enabled=color_enabled, failure_rows_cfg=failure_rows_cfg)
+    _print_failures(results, color_enabled=color_enabled,
+                    failure_rows_cfg=failure_rows_cfg)
     _print_footer(results, duration, color_enabled=color_enabled)
     return 1 if failed else 0
 
 
-def _handle_init(engine: str, config: str, tests_dir: str, *, force: bool) -> int:
+def _handle_init(
+        engine: str,
+        config: str,
+        tests_dir: str,
+        *,
+        force: bool
+        ) -> int:
     config_path = Path(config)
     tests_path = Path(tests_dir)
     sample_test_path = tests_path / "01_no_null_emails.sql"
 
     try:
-        _write_if_allowed(config_path, _build_starter_config(engine), force=force)
-        _write_if_allowed(sample_test_path, _build_starter_test_sql(), force=force)
-    except Exception as exc:  # pragma: no cover - surfaced as CLI error behavior
+        _write_if_allowed(
+            config_path, _build_starter_config(engine), force=force)
+        _write_if_allowed(sample_test_path,
+                          _build_starter_test_sql(), force=force)
+    except Exception as exc:  # pragma: no cover - surfaced as CLI error
         print(f"Error: {exc}", file=sys.stderr)
         return 2
 
@@ -598,10 +635,10 @@ def _handle_validate_config(config: str, env: str | None) -> int:
         backend = get_backend(db_config.engine)
         with closing(backend.connect(db_config.connection)) as connection:
             backend.test_connection(connection, db_config.connection)
-    except Exception as exc:  # pragma: no cover - surfaced as CLI error behavior
+    except Exception as exc:  # pragma: no cover - surfaced as CLI error
         print("Config validation: FAILED", file=sys.stderr)
         print(
-            f"Engine: {db_config.engine if db_config is not None else 'unknown'}",
+            f"Engine: {db_config.engine if db_config is not None else 'unknown'}",  # noqa: E501
             file=sys.stderr,
         )
         print(
@@ -639,7 +676,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         return _handle_run(args.config, args.tests_dir, args.color, args)
     if args.command == "init":
-        return _handle_init(args.engine, args.config, args.tests_dir, force=args.force)
+        return _handle_init(
+            args.engine, args.config, args.tests_dir, force=args.force
+        )
     if args.command == "validate-config":
         return _handle_validate_config(args.config, args.env)
 

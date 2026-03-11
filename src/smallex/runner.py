@@ -127,7 +127,8 @@ def _parse_database_config(
     connections_raw = raw_database_cfg.get("connections")
     default_connection_raw = raw_database_cfg.get("default_connection")
     default_connection = (
-        default_connection_raw if isinstance(default_connection_raw, str) else None
+        default_connection_raw if isinstance(
+            default_connection_raw, str) else None
     )
 
     connection_cfg: Mapping[str, object] = {}
@@ -150,7 +151,8 @@ def _parse_database_config(
             if selected_connection is None:
                 raise ValueError(
                     "Unknown database connection environment "
-                    f"'{selected_name}'. Available: {', '.join(sorted(connections_cfg))}"
+                    f"'{selected_name}'. Available: "
+                    f"{', '.join(sorted(connections_cfg))}"
                 )
             connection_cfg = _as_mapping(
                 selected_connection,
@@ -166,8 +168,9 @@ def _parse_database_config(
                 )
             else:
                 raise ValueError(
-                    "Config [database.connections] defines multiple environments. "
-                    "Provide --env or set [database].default_connection."
+                    "Config [database.connections] defines multiple "
+                    "environments. Provide --env or set "
+                    "[database].default_connection."
                 )
 
     if not connection_cfg:
@@ -175,12 +178,14 @@ def _parse_database_config(
         if connection_raw is None:
             connection_cfg = {}
         else:
-            connection_cfg = _as_mapping(connection_raw, field_name="[database.connection]")
+            connection_cfg = _as_mapping(
+                connection_raw, field_name="[database.connection]")
 
     if not connection_cfg:
         excluded = {"engine", "module", "connections", "default_connection"}
         connection_cfg = {
-            key: value for key, value in raw_database_cfg.items() if key not in excluded
+            key: value for key, value in raw_database_cfg.items()
+            if key not in excluded
         }
 
     return DatabaseConfig(engine=engine, connection=dict(connection_cfg))
@@ -244,7 +249,8 @@ def _safe_test_name(name: str) -> str:
     """Sanitize test names for filesystem usage in CSV exports."""
 
     lowered = name.lower()
-    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in lowered)
+    cleaned = "".join(ch if ch.isalnum() or ch in {
+                      "-", "_"} else "_" for ch in lowered)
     collapsed = "_".join(part for part in cleaned.split("_") if part)
     return collapsed or "test"
 
@@ -257,7 +263,11 @@ def _csv_path_for_case(case: SQLTestCase, csv_dir: Path) -> Path:
     return csv_dir / f"{stem}__{safe_name}.csv"
 
 
-def _write_rows_csv(path: Path, columns: Sequence[str], rows: Sequence[Sequence[object]]) -> None:
+def _write_rows_csv(
+        path: Path,
+        columns: Sequence[str],
+        rows: Sequence[Sequence[object]]
+) -> None:
     """Write rows and columns to a CSV file."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -317,7 +327,7 @@ def run_sql_case(
     cursor = connection.cursor()
     try:
         cursor.execute(case.query)
-    except Exception as exc:  # pragma: no cover - backend-specific SQL error paths
+    except Exception as exc:  # pragma: no cover - backend-specific SQL error
         error_message = str(exc).strip()
         if not error_message:
             error_message = exc.__class__.__name__
@@ -388,7 +398,8 @@ def run_all(
     if not cases:
         return [], 0
 
-    reporting_cfg = failure_rows if failure_rows is not None else FailureRowsConfig()
+    reporting_cfg = failure_rows if failure_rows is not None \
+        else FailureRowsConfig()
     backend = get_backend(db_config.engine)
     results: list[TestResult] = []
 

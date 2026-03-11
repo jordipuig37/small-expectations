@@ -17,7 +17,7 @@ class DatabaseConfig:
     """Configuration payload used to build a backend connection.
 
     Attributes:
-        engine: Logical backend name (for example: ``sqlite`` or ``snowflake``).
+        engine: Logical backend name (for example: ``sqlite`` or ``snowflake``)
         connection: Keyword arguments passed to the backend connector.
     """
 
@@ -43,7 +43,10 @@ class BaseDatabaseBackend(ABC):
     connect_attr: ClassVar[str] = "connect"
     required_connection_fields: ClassVar[tuple[str, ...]] = ()
 
-    def prepare_connection_options(self, options: Mapping[str, object]) -> dict[str, object]:
+    def prepare_connection_options(
+            self,
+            options: Mapping[str, object]
+    ) -> dict[str, object]:
         """Transform user config into connector-ready options.
 
         Subclasses can override this to map normalized values to
@@ -59,7 +62,10 @@ class BaseDatabaseBackend(ABC):
 
         return dict(options)
 
-    def validate_connection_options(self, options: Mapping[str, object]) -> None:
+    def validate_connection_options(
+            self,
+            options: Mapping[str, object]
+    ) -> None:
         """Validate connection options before opening a connection.
 
         Args:
@@ -69,12 +75,15 @@ class BaseDatabaseBackend(ABC):
             ValueError: If one or more required fields are missing.
         """
 
-        missing = [name for name in self.required_connection_fields if not options.get(name)]
+        missing = [
+            name for name in self.required_connection_fields
+            if not options.get(name)
+        ]
         if missing:
             missing_fields = ", ".join(missing)
             raise ValueError(
-                f"Backend '{self.engine_name}' is missing required connection fields: "
-                f"{missing_fields}"
+                f"Backend '{self.engine_name}' is missing required connection "
+                f"fields: {missing_fields}"
             )
 
     def connect(self, options: Mapping[str, object]) -> ConnectionProtocol:
@@ -93,7 +102,8 @@ class BaseDatabaseBackend(ABC):
         connect_fn = getattr(module, self.connect_attr, None)
         if connect_fn is None or not callable(connect_fn):
             raise AttributeError(
-                f"Module '{self.module_path}' does not expose callable '{self.connect_attr}'."
+                f"Module '{self.module_path}' does not expose callable "
+                f"'{self.connect_attr}'."
             )
         connector = cast(Callable[..., ConnectionProtocol], connect_fn)
         return connector(**prepared_options)
@@ -104,7 +114,6 @@ class BaseDatabaseBackend(ABC):
         options: Mapping[str, object],
     ) -> None:
         """Verify a backend connection is usable."""
-
         with closing(connection.cursor()) as cursor:
             cursor.execute("SELECT 1")
             cursor.fetchone()
