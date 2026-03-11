@@ -2,6 +2,12 @@
 
 Simple SQL-based expectations runner.
 
+[![codecov](https://codecov.io/gh/jordipuig37/small-expectations/branch/main/graph/badge.svg)](https://codecov.io/gh/jordipuig37/small-expectations)
+[![PyPI](https://img.shields.io/pypi/v/small-expectations)](https://pypi.org/project/small-expectations/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/small-expectations)](https://pypi.org/project/small-expectations/)
+[![License](https://img.shields.io/pypi/l/small-expectations)](https://pypi.org/project/small-expectations/)
+[![Docs](https://github.com/jordipuig37/small-expectations/actions/workflows/docs.yml/badge.svg?branch=main)](https://jordipuig37.github.io/small-expectations/)
+
 ## Install
 
 ```bash
