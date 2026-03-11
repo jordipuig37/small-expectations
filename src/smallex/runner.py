@@ -68,6 +68,7 @@ class TestResult:
         columns: Result column names for failing query rows.
         sample_rows: Sample rows for terminal reporting.
         csv_path: Generated CSV path when export is enabled.
+        error_message: SQL error message when query execution fails.
     """
 
     case: SQLTestCase
@@ -77,6 +78,7 @@ class TestResult:
     columns: list[str]
     sample_rows: list[tuple[object, ...]]
     csv_path: Path | None
+    error_message: str | None = None
 
     @property
     def message(self) -> str | None:
@@ -313,7 +315,22 @@ def run_sql_case(
     """Execute one SQL test case and classify pass/fail with diagnostics."""
 
     cursor = connection.cursor()
-    cursor.execute(case.query)
+    try:
+        cursor.execute(case.query)
+    except Exception as exc:  # pragma: no cover - backend-specific SQL error paths
+        error_message = str(exc).strip()
+        if not error_message:
+            error_message = exc.__class__.__name__
+        return TestResult(
+            case=case,
+            passed=False,
+            row_count=0,
+            has_more_rows=False,
+            columns=[],
+            sample_rows=[],
+            csv_path=None,
+            error_message=error_message,
+        )
     first_row = cursor.fetchone()
     if first_row is None:
         return TestResult(

@@ -416,6 +416,9 @@ def _print_failures(
     for result in failed:
         print("_" * _terminal_width())
         print(_paint(result.node_id, RED, enabled=color_enabled))
+        if result.error_message:
+            print(_paint(f"SQL error: {result.error_message}", RED, enabled=color_enabled))
+            continue
         if result.message:
             print(_paint(f"Message: {result.message}", RED, enabled=color_enabled))
         else:
@@ -493,7 +496,10 @@ def _print_footer(
         )
         for result in failed:
             label = _paint("FAILED", RED, enabled=color_enabled)
-            detail = result.message if result.message else "Query returned one or more rows"
+            if result.error_message:
+                detail = f"SQL error: {result.error_message}"
+            else:
+                detail = result.message if result.message else "Query returned one or more rows"
             print(f"{label} {result.node_id} - {detail}")
 
     status_parts: list[str] = []
