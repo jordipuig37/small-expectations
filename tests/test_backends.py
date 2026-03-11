@@ -25,7 +25,9 @@ def test_get_backend_raises_for_unknown_engine() -> None:
         get_backend("postgres")
 
 
-def test_snowflake_backend_connects_without_real_driver(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_snowflake_backend_connects_without_real_driver(
+        monkeypatch: pytest.MonkeyPatch
+        ) -> None:
     called: dict[str, object] = {}
 
     class FakeCursorForConnect(CursorProtocol):
@@ -54,7 +56,8 @@ def test_snowflake_backend_connects_without_real_driver(monkeypatch: pytest.Monk
         assert module_path == "snowflake.connector"
         return SimpleNamespace(connect=fake_connect)
 
-    monkeypatch.setattr("smallex.backends.base.importlib.import_module", fake_import_module)
+    monkeypatch.setattr(
+        "smallex.backends.base.importlib.import_module", fake_import_module)
 
     backend = SnowflakeBackend()
     backend.connect(
@@ -74,7 +77,9 @@ def test_snowflake_backend_connects_without_real_driver(monkeypatch: pytest.Monk
 
 def test_snowflake_browser_auth_mode_is_rejected() -> None:
     backend = SnowflakeBackend()
-    with pytest.raises(ValueError, match="Unsupported auth_mode for snowflake"):
+    with pytest.raises(
+            ValueError, match="Unsupported auth_mode for snowflake"
+            ):
         backend.connect(
             {
                 "auth_mode": "browser",
@@ -153,7 +158,8 @@ def test_run_all_for_snowflake_uses_backend_with_mocked_driver(
         connect_fn: Callable[..., ConnectionProtocol] = fake_connect
         return SimpleNamespace(connect=connect_fn)
 
-    monkeypatch.setattr("smallex.backends.base.importlib.import_module", fake_import_module)
+    monkeypatch.setattr(
+        "smallex.backends.base.importlib.import_module", fake_import_module)
 
     results, failed = run_all(config_path, tests_dir)
     assert failed == 0
@@ -254,7 +260,9 @@ def test_load_config_requires_env_or_default_when_multiple_named_connections(
         load_config(config_path)
 
 
-def test_load_config_raises_for_unknown_named_connection(tmp_path: Path) -> None:
+def test_load_config_raises_for_unknown_named_connection(
+        tmp_path: Path
+        ) -> None:
     config_path = tmp_path / "smallex.toml"
     config_path.write_text(
         "\n".join(
@@ -269,13 +277,17 @@ def test_load_config_raises_for_unknown_named_connection(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="Unknown database connection environment"):
+    with pytest.raises(
+            ValueError, match="Unknown database connection environment"
+            ):
         load_config(config_path, env="staging")
 
 
 def test_databricks_browser_auth_mode_is_rejected() -> None:
     backend = DatabricksBackend()
-    with pytest.raises(ValueError, match="Unsupported auth_mode for databricks"):
+    with pytest.raises(
+            ValueError, match="Unsupported auth_mode for databricks"
+            ):
         backend.connect(
             {
                 "auth_mode": "browser",

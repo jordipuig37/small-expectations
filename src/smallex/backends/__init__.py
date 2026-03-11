@@ -32,5 +32,6 @@ def get_backend(engine: str) -> BaseDatabaseBackend:
     backend_cls = _BACKENDS.get(engine.lower())
     if backend_cls is None:
         supported = ", ".join(sorted(_BACKENDS))
-        raise ValueError(f"Unsupported database engine '{engine}'. Supported: {supported}")
+        raise ValueError(
+            f"Unsupported database engine '{engine}'. Supported: {supported}")
     return backend_cls()

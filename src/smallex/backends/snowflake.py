@@ -35,7 +35,10 @@ class SnowflakeBackend(BaseDatabaseBackend):
         "schema",
     )
 
-    def prepare_connection_options(self, options: Mapping[str, object]) -> dict[str, object]:
+    def prepare_connection_options(
+            self,
+            options: Mapping[str, object]
+            ) -> dict[str, object]:
         """Map normalized auth mode values to Snowflake connector options."""
 
         prepared = dict(options)
@@ -46,17 +49,21 @@ class SnowflakeBackend(BaseDatabaseBackend):
             )
         return prepared
 
-    def validate_connection_options(self, options: Mapping[str, object]) -> None:
+    def validate_connection_options(
+            self,
+            options: Mapping[str, object]
+            ) -> None:
         """Validate Snowflake fields according to selected auth mode."""
 
         missing = [
-            name for name in self.required_connection_fields if not options.get(name)
+            name for name in self.required_connection_fields
+            if not options.get(name)
         ]
         if missing:
             missing_fields = ", ".join(missing)
             raise ValueError(
-                f"Backend '{self.engine_name}' is missing required connection fields: "
-                f"{missing_fields}"
+                f"Backend '{self.engine_name}' is missing required connection "
+                f"fields: {missing_fields}"
             )
 
     def test_connection(
@@ -70,8 +77,13 @@ class SnowflakeBackend(BaseDatabaseBackend):
         with closing(connection.cursor()) as cursor:
             self._validate_session(cursor, options)
 
-    def _validate_session(self, cursor: CursorProtocol, options: Mapping[str, object]) -> None:
-        """Run USE statements for configured database, schema, warehouse, and role."""
+    def _validate_session(
+            self,
+            cursor: CursorProtocol,
+            options: Mapping[str, object]
+            ) -> None:
+        """Run USE statements for configured database, schema, warehouse, and
+        role."""
 
         for key, statement in (
             ("warehouse", "USE WAREHOUSE"),

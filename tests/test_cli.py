@@ -24,7 +24,9 @@ def _write_config(path: Path, db_path: Path) -> None:
     )
 
 
-def _write_env_config(path: Path, dev_db_path: Path, prod_db_path: Path) -> None:
+def _write_env_config(
+        path: Path, dev_db_path: Path, prod_db_path: Path
+        ) -> None:
     path.write_text(
         "\n".join(
             [
@@ -109,15 +111,20 @@ def test_run_command_fails_when_query_returns_rows(
     assert "1 failed in " in out
 
 
-def test_run_command_returns_error_for_missing_config(capsys: CaptureFixture[str]) -> None:
-    exit_code = main(["run", "--config", "missing.toml", "--tests-dir", "tests"])
+def test_run_command_returns_error_for_missing_config(
+        capsys: CaptureFixture[str]
+        ) -> None:
+    exit_code = main(
+        ["run", "--config", "missing.toml", "--tests-dir", "tests"])
     err = capsys.readouterr().err
 
     assert exit_code == 2
     assert "Error:" in err
 
 
-def test_run_command_help_displays_options(capsys: CaptureFixture[str]) -> None:
+def test_run_command_help_displays_options(
+        capsys: CaptureFixture[str]
+        ) -> None:
     with pytest.raises(SystemExit) as raised:
         main(["run", "--help"])
 
@@ -330,7 +337,8 @@ def test_init_command_creates_starter_config_and_sample_test(
     assert config_path.exists()
     assert (tests_dir / "01_no_null_emails.sql").exists()
     config_text = config_path.read_text(encoding="utf-8")
-    test_text = (tests_dir / "01_no_null_emails.sql").read_text(encoding="utf-8")
+    test_text = (
+        tests_dir / "01_no_null_emails.sql").read_text(encoding="utf-8")
     assert 'engine = "sqlite"' in config_text
     assert 'default_connection = "dev"' in config_text
     assert "-- smallex:test: no_null_emails" in test_text
@@ -365,7 +373,9 @@ def test_init_command_fails_when_target_files_exist_without_force(
     assert "File already exists:" in err
 
 
-def test_validate_config_command_succeeds_for_sqlite(tmp_path: Path, capsys: CaptureFixture[str]) -> None:
+def test_validate_config_command_succeeds_for_sqlite(
+        tmp_path: Path, capsys: CaptureFixture[str]
+        ) -> None:
     db_path = tmp_path / "test.db"
     config_path = tmp_path / "smallex.toml"
     _write_config(config_path, db_path)

@@ -27,7 +27,10 @@ class DatabricksBackend(BaseDatabaseBackend):
         "access_token",
     )
 
-    def prepare_connection_options(self, options: Mapping[str, object]) -> dict[str, object]:
+    def prepare_connection_options(
+            self,
+            options: Mapping[str, object]
+            ) -> dict[str, object]:
         """Map normalized auth mode values to Databricks connector options."""
 
         prepared = dict(options)
@@ -38,15 +41,19 @@ class DatabricksBackend(BaseDatabaseBackend):
             )
         return prepared
 
-    def validate_connection_options(self, options: Mapping[str, object]) -> None:
+    def validate_connection_options(
+            self,
+            options: Mapping[str, object]
+            ) -> None:
         """Validate Databricks fields according to selected auth mode."""
 
         missing = [
-            name for name in self.required_connection_fields if not options.get(name)
+            name for name in self.required_connection_fields
+            if not options.get(name)
         ]
         if missing:
             missing_fields = ", ".join(missing)
             raise ValueError(
-                f"Backend '{self.engine_name}' is missing required connection fields: "
-                f"{missing_fields}"
+                f"Backend '{self.engine_name}' is missing required connection "
+                f"fields: {missing_fields}"
             )
