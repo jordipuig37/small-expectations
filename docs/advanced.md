@@ -20,7 +20,7 @@ smallex run
 
 ## Multiple tests inside one SQL file
 
-You can declare multiple logical checks in a single file using metadata comments.
+You can declare multiple logical checks in a single file. Use comments to name tests and add failure messages.
 
 ```sql
 -- smallex:test: no_null_emails
@@ -42,7 +42,6 @@ Behavior:
 
 - `-- smallex:test:` starts a new logical test block
 - `-- smallex:message:` adds custom failure text to that test
-- if no `test` marker exists, the whole file becomes one test
 
 ## Useful command variants
 

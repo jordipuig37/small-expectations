@@ -2,7 +2,7 @@
 
 `small-expectations` supports `sqlite`, `snowflake`, and `databricks`.
 
-Connection values are read from:
+Connection values are read from `smallex.toml`:
 
 ```toml
 [database]

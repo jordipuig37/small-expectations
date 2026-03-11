@@ -18,8 +18,6 @@ smallex init --engine sqlite
 
 Or create `smallex.toml` manually:
 
-Create `smallex.toml`:
-
 ```toml
 [database]
 engine = "sqlite"
