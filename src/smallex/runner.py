@@ -278,6 +278,25 @@ def _write_rows_csv(
             writer.writerow(row)
 
 
+def _cleanup_failure_csv_files(csv_dir: Path) -> None:
+    """Remove previously generated CSV exports from the failure directory."""
+
+    if not csv_dir.exists():
+        return
+
+    for csv_path in csv_dir.glob("*.csv"):
+        if csv_path.is_file():
+            csv_path.unlink()
+
+
+def _prepare_failure_row_outputs(config: FailureRowsConfig) -> None:
+    """Prepare on-disk outputs for a run based on the reporting mode."""
+
+    if not config.csv_enabled():
+        return
+    _cleanup_failure_csv_files(config.csv_dir)
+
+
 def _row_fetch_limit(config: FailureRowsConfig) -> int:
     """Compute maximum number of rows to fetch for failure reporting."""
 
@@ -400,6 +419,7 @@ def run_all(
 
     reporting_cfg = failure_rows if failure_rows is not None \
         else FailureRowsConfig()
+    _prepare_failure_row_outputs(reporting_cfg)
     backend = get_backend(db_config.engine)
     results: list[TestResult] = []
 
