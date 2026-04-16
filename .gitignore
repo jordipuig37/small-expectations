@@ -38,3 +38,5 @@ smallex*.toml
 .pypirc
 
 TODO.md
+
+.smallex/
