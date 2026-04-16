@@ -195,6 +195,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=".smallex/failures",
         help="Directory for failure CSV outputs (default: .smallex/failures).",
     )
+    run_parser.add_argument(
+        "target",
+        nargs="?",
+        help=(
+            "Optional selector: <script>[.<test>] or path/to/script(.sql). "
+            "If omitted, all tests run."
+        ),
+    )
 
     init_parser = subparsers.add_parser(
         "init",
@@ -581,6 +589,7 @@ def _handle_run(
             tests_path,
             env=args.env,
             failure_rows=failure_rows_cfg,
+            selector=args.target,
         )
     except Exception as exc:  # pragma: no cover - surfaced as CLI error
         print(f"Error: {exc}", file=sys.stderr)
