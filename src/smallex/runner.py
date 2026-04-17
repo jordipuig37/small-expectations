@@ -222,6 +222,87 @@ def discover_sql_cases(tests_dir: Path) -> list[SQLTestCase]:
     return parse_sql_files(files)
 
 
+def _parse_selector(selector: str) -> tuple[str | None, str | None]:
+    """Parse CLI selector into script and optional test components."""
+
+    selector = selector.strip()
+    if not selector:
+        return None, None
+    if selector.endswith(".sql"):
+        return selector, None
+    if "." in selector:
+        script_part, test_part = selector.rsplit(".", 1)
+        if script_part:
+            return script_part, test_part or None
+    return selector, None
+
+
+def _matches_script_target(
+    case: SQLTestCase,
+    tests_dir: Path,
+    script_part: str,
+) -> bool:
+    script_normalized = script_part.replace("\\", "/")
+    script_no_suffix = (
+        script_normalized[:-4]
+        if script_normalized.endswith(".sql")
+        else script_normalized
+    )
+
+    try:
+        rel_path = case.path.resolve().relative_to(tests_dir.resolve())
+    except ValueError:
+        rel_path = case.path
+
+    rel_posix = rel_path.as_posix()
+    rel_no_suffix = (
+        rel_path.with_suffix("").as_posix()
+        if rel_path.suffix
+        else rel_posix
+    )
+
+    if rel_posix == script_normalized:
+        return True
+    if rel_posix == f"{script_no_suffix}.sql":
+        return True
+    if rel_no_suffix == script_no_suffix:
+        return True
+    if case.path.name == script_normalized:
+        return True
+    if case.path.stem == script_no_suffix:
+        return True
+    return False
+
+
+def _filter_cases_by_selector(
+    cases: list[SQLTestCase],
+    tests_dir: Path,
+    selector: str,
+) -> list[SQLTestCase]:
+    script_part, test_part = _parse_selector(selector)
+    if script_part is None:
+        return cases
+
+    filtered: list[SQLTestCase] = []
+    for case in cases:
+        if not _matches_script_target(case, tests_dir, script_part):
+            continue
+        if test_part is not None and case.name != test_part:
+            continue
+        filtered.append(case)
+
+    if not filtered:
+        if test_part is None:
+            raise ValueError(
+                f"No tests matched script selector '{selector}'."
+            )
+        raise ValueError(
+            f"No tests matched selector '{selector}'."
+        )
+
+    return filtered
+
+
 def _normalize_row(row: Sequence[object]) -> tuple[object, ...]:
     """Normalize DB-API row representation into a tuple."""
 
@@ -276,6 +357,25 @@ def _write_rows_csv(
         writer.writerow(columns)
         for row in rows:
             writer.writerow(row)
+
+
+def _cleanup_failure_csv_files(csv_dir: Path) -> None:
+    """Remove previously generated CSV exports from the failure directory."""
+
+    if not csv_dir.exists():
+        return
+
+    for csv_path in csv_dir.glob("*.csv"):
+        if csv_path.is_file():
+            csv_path.unlink()
+
+
+def _prepare_failure_row_outputs(config: FailureRowsConfig) -> None:
+    """Prepare on-disk outputs for a run based on the reporting mode."""
+
+    if not config.csv_enabled():
+        return
+    _cleanup_failure_csv_files(config.csv_dir)
 
 
 def _row_fetch_limit(config: FailureRowsConfig) -> int:
@@ -390,16 +490,20 @@ def run_all(
     *,
     env: str | None = None,
     failure_rows: FailureRowsConfig | None = None,
+    selector: str | None = None,
 ) -> tuple[list[TestResult], int]:
     """Run all SQL expectations and return results plus failed count."""
 
     db_config = load_config(config_path, env=env)
     cases = discover_sql_cases(tests_dir)
+    if selector:
+        cases = _filter_cases_by_selector(cases, tests_dir, selector)
     if not cases:
         return [], 0
 
     reporting_cfg = failure_rows if failure_rows is not None \
         else FailureRowsConfig()
+    _prepare_failure_row_outputs(reporting_cfg)
     backend = get_backend(db_config.engine)
     results: list[TestResult] = []
 

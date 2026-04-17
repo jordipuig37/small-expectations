@@ -222,6 +222,134 @@ def test_run_command_supports_message_and_multi_query_blocks(
     assert "Sample failing rows" in out
 
 
+def test_run_command_filters_by_script_name(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "test.db"
+    config_path = tmp_path / "smallex.toml"
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    _write_config(config_path, db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+        conn.execute("INSERT INTO users (email) VALUES (NULL)")
+        conn.commit()
+
+    (tests_dir / "users.sql").write_text(
+        "\n".join(
+            [
+                "-- smallex:test: no_null_emails",
+                "SELECT id, email FROM users WHERE email IS NULL;",
+                "",
+                "-- smallex:test: no_blank_emails",
+                "SELECT id, email FROM users WHERE email = '';",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tests_dir / "orders.sql").write_text(
+        "SELECT 1 WHERE 1 = 0;",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--tests-dir",
+            str(tests_dir),
+            "users",
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "collected 2 items" in out
+    assert "users.sql F." in out
+    assert "orders.sql" not in out
+
+
+def test_run_command_filters_by_script_and_test_name(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "test.db"
+    config_path = tmp_path / "smallex.toml"
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    _write_config(config_path, db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+        conn.execute("INSERT INTO users (email) VALUES (NULL)")
+        conn.commit()
+
+    (tests_dir / "users.sql").write_text(
+        "\n".join(
+            [
+                "-- smallex:test: no_null_emails",
+                "SELECT id, email FROM users WHERE email IS NULL;",
+                "",
+                "-- smallex:test: no_blank_emails",
+                "SELECT id, email FROM users WHERE email = '';",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--tests-dir",
+            str(tests_dir),
+            "users.no_blank_emails",
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "collected 1 item" in out
+    assert "users.sql ." in out
+    assert "FAILURES" not in out
+
+
+def test_run_command_errors_on_unknown_selector(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "test.db"
+    config_path = tmp_path / "smallex.toml"
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    _write_config(config_path, db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+        conn.commit()
+
+    (tests_dir / "users.sql").write_text(
+        "SELECT id, email FROM users WHERE email IS NULL;",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--tests-dir",
+            str(tests_dir),
+            "missing",
+        ]
+    )
+    err = capsys.readouterr().err
+
+    assert exit_code == 2
+    assert "No tests matched" in err
+
+
 def test_run_command_supports_failure_csv_export(
     tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:
@@ -265,6 +393,80 @@ def test_run_command_supports_failure_csv_export(
     assert len(csv_files) == 1
     content = csv_files[0].read_text(encoding="utf-8")
     assert "id,email" in content
+
+
+def test_run_command_cleans_up_obsolete_failure_csv_files(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "test.db"
+    config_path = tmp_path / "smallex.toml"
+    tests_dir = tmp_path / "tests"
+    output_dir = tmp_path / "failures"
+    tests_dir.mkdir()
+    _write_config(config_path, db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+        conn.execute("INSERT INTO users (email) VALUES (NULL)")
+        conn.execute("INSERT INTO users (email) VALUES ('')")
+        conn.commit()
+
+    (tests_dir / "null_emails.sql").write_text(
+        "SELECT id, email FROM users WHERE email IS NULL;",
+        encoding="utf-8",
+    )
+    (tests_dir / "blank_emails.sql").write_text(
+        "SELECT id, email FROM users WHERE email = '';",
+        encoding="utf-8",
+    )
+
+    first_exit_code = main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--tests-dir",
+            str(tests_dir),
+            "--failure-rows-mode",
+            "csv",
+            "--failure-rows-dir",
+            str(output_dir),
+        ]
+    )
+    capsys.readouterr()
+
+    first_csv_files = sorted(path.name for path in output_dir.glob("*.csv"))
+    assert first_exit_code == 1
+    assert first_csv_files == [
+        "blank_emails__blank_emails.csv",
+        "null_emails__null_emails.csv",
+    ]
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE users SET email = 'fixed@example.com' WHERE email IS NULL"
+        )
+        conn.commit()
+
+    second_exit_code = main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--tests-dir",
+            str(tests_dir),
+            "--failure-rows-mode",
+            "csv",
+            "--failure-rows-dir",
+            str(output_dir),
+        ]
+    )
+    capsys.readouterr()
+
+    second_csv_files = sorted(path.name for path in output_dir.glob("*.csv"))
+    assert second_exit_code == 1
+    assert second_csv_files == ["blank_emails__blank_emails.csv"]
+    assert not (output_dir / "null_emails__null_emails.csv").exists()
 
 
 def test_run_command_supports_named_connection_environment(
